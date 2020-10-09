@@ -3,12 +3,10 @@ using EPiServer.Commerce.Catalog.ContentTypes;
 using EPiServer.Tracking.Commerce;
 using EPiServer.Web.Routing;
 using Foundation.Cms;
-using Foundation.Commerce.Catalog.ViewModels;
 using Foundation.Commerce.Customer.Services;
 using Foundation.Commerce.Extensions;
-using Foundation.Commerce.Models.Catalog;
-using Foundation.Commerce.Personalization;
-using Foundation.Demo.ViewModels;
+using Foundation.Features.CatalogContent.Variation;
+using Foundation.Personalization;
 using Foundation.Social.Services;
 using Mediachase.Commerce.Catalog;
 using System.Linq;
@@ -45,8 +43,12 @@ namespace Foundation.Features.CatalogContent.Bundle
             viewModel.BreadCrumb = GetBreadCrumb(currentContent.Code);
             if (_isInEditMode && !viewModel.Entries.Any())
             {
-                var emptyViewName = "BundleWithoutEntries";
-                return View(emptyViewName, viewModel);
+                return View(viewModel);
+            }
+
+            if (viewModel.Entries == null || viewModel.Entries.Count() == 0)
+            {
+                return HttpNotFound();
             }
 
             await AddInfomationViewModel(viewModel, currentContent.Code, skipTracking);

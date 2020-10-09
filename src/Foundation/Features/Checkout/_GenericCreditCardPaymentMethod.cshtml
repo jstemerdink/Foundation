@@ -1,8 +1,8 @@
-﻿@model  Foundation.Commerce.Order.Payments.GenericCreditCardPaymentOption
+﻿@using Foundation.Features.Checkout.Payments
 
-@*@Html.HiddenFor(model => model.PaymentMethodId)*@
+@model GenericCreditCardPaymentOption
+
 @Html.HiddenFor(model => model.CardType)
-
 
 <div class="row">
     <div class="col-12 checkout--credit__container">
@@ -10,28 +10,27 @@
             <div class="col-6">
                 <label class="checkbox">
                     Available credit cards
-                    <input class="radio jsSelectCreditCard" id="CreditType" name="CreditType" type="radio" value="#avaiableCreditCard" @(Model.UseSelectedCreditCard ? "checked='checked'" : "")>
+                    <input class="radio jsSelectCreditCard" id="availableCreditType" name="CreditType" type="radio" value="#avaiableCreditCard" @(Model.UseSelectedCreditCard ? "checked='checked'" : "")>
                     <span class="checkmark"></span>
                 </label>
             </div>
             <div class="col-6">
                 <label class="checkbox">
                     New credit card
-                    <input class="radio jsSelectCreditCard" id="CreditType" name="CreditType" type="radio" value="#newCreditCard" @(!Model.UseSelectedCreditCard ? "checked='checked'" : "")>
+                    <input class="radio jsSelectCreditCard" id="newCreditType" name="CreditType" type="radio" value="#newCreditCard" @(!Model.UseSelectedCreditCard ? "checked='checked'" : "")>
                     <span class="checkmark"></span>
                 </label>
             </div>
         </div>
 
-
         @Html.HiddenFor(x => x.UseSelectedCreditCard, Model.UseSelectedCreditCard)
 
-        <div id="avaiableCreditCard" class="selectCreditCardType" @(!Model.UseSelectedCreditCard ? "style=display:none" : "")>
+        <div id="avaiableCreditCard" class="selectCreditCardType @(!Model.UseSelectedCreditCard ? "display-none" : "")">
             @Html.DropDownListFor(x => x.SelectedCreditCardId, Model.AvaiableCreditCards, new { @class = "select-menu" })
             @Html.ValidationMessageFor(model => model.SelectedCreditCardId)
         </div>
 
-        <div id="newCreditCard" class="selectCreditCardType" @(Model.UseSelectedCreditCard ? "style=display:none" : "")>
+        <div id="newCreditCard" class="selectCreditCardType @(Model.UseSelectedCreditCard ? "display-none" : "")">
             <div class="form-group">
                 @Html.LabelFor(model => model.CreditCardName)
                 @Html.TextBoxFor(model => model.CreditCardName, new { @class = "textbox" })

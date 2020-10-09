@@ -5,7 +5,7 @@ namespace Foundation.Commerce
     public static class Constant
     {
         public const string SectionName = "InfoBlock";
-        public const string ErrorMesages = "ErrorMesages";
+        public const string ErrorMessages = "ErrorMessages";
         public const string DefaultDisplayOrder = "10000";
 
         public static class GroupNames
@@ -14,7 +14,6 @@ namespace Foundation.Commerce
             public const string Commerce = "Commerce";
             public const string Locations = "Locations";
         }
-
 
         public static class Classes
         {
@@ -40,8 +39,8 @@ namespace Foundation.Commerce
             public const string UserRoleFriendly = "User Role";
             public const string UserLocation = "UserLocation";
             public const string UserLocationFriendly = "User Location";
-            public const string SelectedSuborganization = "SelectedSuborganization";
-            public const string SelectedNavSuborganization = "SelectedNavSuborganization";
+            public const string SelectedOrganization = "SelectedSuborganization";
+            public const string SelectedNavOrganization = "SelectedNavSuborganization";
             public const string LockAmount = "LockOrganizationAmount";
             public const string OverwritedMarket = "OverwritedMarket";
         }
@@ -70,6 +69,7 @@ namespace Foundation.Commerce
             public const string PreQuoteTotal = "PreQuoteTotal";
             public const string PreQuotePrice = "PreQuotePrice";
             public const string QuoteExpired = "QuoteExpired";
+            public const string RequestQuoteStatus = "RequestQuoteStatus";
         }
 
         public static class Customer
@@ -85,7 +85,7 @@ namespace Foundation.Commerce
             ///     List page's name that admin can view on B2BNavigation.
             ///     These name are hard code so need to create a page with the exactly name as below setting
             /// </summary>
-            public static List<string> Admin = new List<string>
+            public static readonly List<string> Admin = new List<string>
             {
                 "Overview",
                 "Users",
@@ -95,7 +95,7 @@ namespace Foundation.Commerce
                 "B2B Credit Card"
             };
 
-            public static List<string> Approver = new List<string> { "Overview", "Orders", "Order Pad", "Budgeting" };
+            public static readonly List<string> Approver = new List<string> { "Overview", "Orders", "Order Pad", "Budgeting" };
         }
 
         public static class Order

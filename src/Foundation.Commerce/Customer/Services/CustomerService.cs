@@ -4,7 +4,6 @@ using EPiServer.Framework.Localization;
 using EPiServer.ServiceLocation;
 using Foundation.Cms;
 using Foundation.Cms.Identity;
-using Foundation.Commerce.Customer.ViewModels;
 using Mediachase.Commerce.Customers;
 using Microsoft.AspNet.Identity;
 using Microsoft.AspNet.Identity.Owin;
@@ -36,15 +35,7 @@ namespace Foundation.Commerce.Customer.Services
         public virtual ServiceAccessor<ApplicationUserManager<SiteUser>> UserManager { get; }
         public virtual ServiceAccessor<ApplicationSignInManager<SiteUser>> SignInManager { get; }
         public virtual ServiceAccessor<IAuthenticationManager> AuthenticationManager { get; }
-        public virtual Guid CurrentContactId { get { return _customerContext.CurrentContactId; } }
-
-        public virtual ContactViewModel GetCurrentContactViewModel()
-        {
-            var currentContact = GetCurrentContact();
-            return currentContact?.Contact != null ? new ContactViewModel(currentContact) : new ContactViewModel();
-        }
-
-        public virtual ContactViewModel GetContactViewModelById(string id) => new ContactViewModel(GetContactById(id));
+        public virtual Guid CurrentContactId => _customerContext.CurrentContactId;
 
         public virtual void CreateContact(FoundationContact contact, string contactId)
         {
@@ -63,7 +54,7 @@ namespace Foundation.Commerce.Customer.Services
             }
         }
 
-        public virtual void EditContact(FoundationContact contact) => UpdateContact(contact.ContactId.ToString(), contact.UserRole, contact.UserLocationId);
+        public virtual void EditContact(FoundationContact model) => UpdateContact(model.ContactId.ToString(), model.UserRole, model.UserLocationId);
 
         public virtual void RemoveContactFromOrganization(string id)
         {
@@ -105,7 +96,11 @@ namespace Foundation.Commerce.Customer.Services
         public virtual bool CanSeeOrganizationNav()
         {
             var contact = GetCurrentContact();
-            if (contact == null) return false;
+            if (contact == null)
+            {
+                return false;
+            }
+
             var currentRole = contact.B2BUserRole;
             return currentRole == B2BUserRoles.Admin || currentRole == B2BUserRoles.Approver;
         }
@@ -114,32 +109,6 @@ namespace Foundation.Commerce.Customer.Services
         {
             var contact = GetContactById(contactId);
             return contact.FoundationOrganization != null;
-        }
-
-        public virtual List<ContactViewModel> GetContactViewModelsForOrganization(FoundationOrganization organization = null)
-        {
-            if (organization == null)
-            {
-                organization = GetCurrentOrganization();
-            }
-
-            if (organization == null)
-            {
-                return new List<ContactViewModel>();
-            }
-
-            var organizationUsers = GetContactsForOrganization(organization);
-
-            if (organization.SubOrganizations.Count > 0)
-            {
-                foreach (var subOrg in organization.SubOrganizations)
-                {
-                    var contacts = GetContactsForOrganization(subOrg);
-                    organizationUsers.AddRange(contacts);
-                }
-            }
-
-            return organizationUsers.Select(user => new ContactViewModel(user)).ToList();
         }
 
         public virtual FoundationContact GetContactByEmail(string email)
@@ -206,7 +175,7 @@ namespace Foundation.Commerce.Customer.Services
         {
             if (email == null)
             {
-                throw new ArgumentNullException("email");
+                throw new ArgumentNullException(nameof(email));
             }
 
             return UserManager().FindByEmail(email);
@@ -216,7 +185,7 @@ namespace Foundation.Commerce.Customer.Services
         {
             if (email == null)
             {
-                throw new ArgumentNullException("email");
+                throw new ArgumentNullException(nameof(email));
             }
 
             return await UserManager().FindByNameAsync(email);
@@ -228,7 +197,7 @@ namespace Foundation.Commerce.Customer.Services
         {
             if (user == null)
             {
-                throw new ArgumentNullException("user");
+                throw new ArgumentNullException(nameof(user));
             }
 
             if (user.Password.IsNullOrEmpty())
@@ -252,7 +221,7 @@ namespace Foundation.Commerce.Customer.Services
 
                 if (result.IdentityResult.Succeeded)
                 {
-                    var identity = UserManager().GenerateUserIdentityAsync(user, DefaultAuthenticationTypes.ApplicationCookie).Result;
+                    var identity = await UserManager().GenerateUserIdentityAsync(user, DefaultAuthenticationTypes.ApplicationCookie);
                     AuthenticationManager().SignIn(identity);
                     result.FoundationContact = CreateFoundationContact(user);
                 }
@@ -314,7 +283,7 @@ namespace Foundation.Commerce.Customer.Services
         {
             if (user == null)
             {
-                throw new ArgumentNullException("user");
+                throw new ArgumentNullException(nameof(user));
             }
 
             var contact = FoundationContact.New();

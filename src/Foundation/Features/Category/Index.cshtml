@@ -1,10 +1,9 @@
-﻿@using EPiServer.AddOns.Helpers
-@model Foundation.Find.Cms.ViewModels.CategorySearchViewModel
+﻿@using Foundation.Features.Category
 
+@model CategorySearchViewModel
 
 <div class="row">
     <div class="col-12" id="blog-list">
         @Html.Partial("_PageListing", Model)
     </div>
 </div>
-

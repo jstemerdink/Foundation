@@ -1,12 +1,13 @@
 ﻿@using EPiServer.Web.Mvc.Html
-@using Foundation.Commerce.ViewModels.Header
+@using Foundation.Features.MyAccount.GiftCardPage
 
 @model GiftCardViewModel
 
+@{
+    Layout = "~/Features/MyAccount/_MyAccountLayout.cshtml";
+}
+
 <div class="row">
-    @{
-        Html.RenderAction("MyAccountMenu", "MyAccountNavigation", new { id = MyAccountPageType.Organization });
-    }
     <div class="col-md-12 col-lg-9">
         <div class="gift-card-section">
             <div class="page-title">
@@ -28,8 +29,8 @@
                         {
                             <tr>
                                 <td>@giftcard.GiftCardName</td>
-                                <td>@giftcard.InitialAmount</td>
-                                <td>@giftcard.RemainBalance</td>
+                                <td>@decimal.Round(giftcard.InitialAmount) USD</td>
+                                <td>@decimal.Round(giftcard.RemainBalance) USD</td>
                                 <td>@giftcard.RedemptionCode</td>
                             </tr>
                         }

@@ -5,6 +5,8 @@ using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Data.SqlClient;
+using System.Linq;
+using EPiServer.Framework.Cache;
 
 namespace Foundation.Commerce.Marketing
 {
@@ -13,8 +15,10 @@ namespace Foundation.Commerce.Marketing
         private readonly IConnectionStringHandler _connectionHandler;
         private readonly ILogger _logger = LogManager.GetLogger(typeof(UniqueCouponService));
         private readonly CouponCodeBuilder _couponCodeBuilder = new CouponCodeBuilder();
+        private readonly ISynchronizedObjectInstanceCache _cache;
+        private const string CouponCachePrefix = "Foundation:UniqueCoupon:";
+        private const string PromotionCachePrefix = "Foundation:Promotion:";
 
-        private const string UniqueCouponTable = "UniqueCoupon";
         private const string IdColumn = "Id";
         private const string PromotionIdColumn = "PromotionId";
         private const string CodeColumn = "Code";
@@ -24,9 +28,12 @@ namespace Foundation.Commerce.Marketing
         private const string CreatedColumn = "Created";
         private const string MaxRedemptionsColumn = "MaxRedemptions";
         private const string UsedRedemptionsColumn = "UsedRedemptions";
-        private const string CacheKeyPrefix = "EP:ECF:Redemption:";
 
-        public UniqueCouponService(IConnectionStringHandler connectionHandler) => _connectionHandler = connectionHandler;
+        public UniqueCouponService(IConnectionStringHandler connectionHandler, ISynchronizedObjectInstanceCache cache)
+        {
+            _connectionHandler = connectionHandler;
+            _cache = cache;
+        }
 
         public bool SaveCoupons(List<UniqueCoupon> coupons)
         {
@@ -50,6 +57,12 @@ namespace Foundation.Commerce.Marketing
                         transaction.Commit();
                     }
                 }
+
+                foreach (var coupon in coupons)
+                {
+                    InvalidateCouponCache(coupon.Id);
+                }
+
                 return true;
             }
             catch (Exception exn)
@@ -81,7 +94,9 @@ namespace Foundation.Commerce.Marketing
                         command.ExecuteNonQuery();
                         transaction.Commit();
                     }
+                    InvalidateCouponCache(id);
                 }
+
                 return true;
             }
             catch (Exception exn)
@@ -113,7 +128,9 @@ namespace Foundation.Commerce.Marketing
                         command.ExecuteNonQuery();
                         transaction.Commit();
                     }
+                    InvalidatePromotionCache(id);
                 }
+
                 return true;
             }
             catch (Exception exn)
@@ -128,27 +145,31 @@ namespace Foundation.Commerce.Marketing
         {
             try
             {
-                var coupons = new List<UniqueCoupon>();
-                var connectionString = _connectionHandler.Commerce.ConnectionString;
-                using (var connection = new SqlConnection(connectionString))
+                return _cache.ReadThrough(GetPromotionCacheKey(id), () =>
                 {
-                    connection.Open();
-                    var command = new SqlCommand
+                    var coupons = new List<UniqueCoupon>();
+                    var connectionString = _connectionHandler.Commerce.ConnectionString;
+                    using (var connection = new SqlConnection(connectionString))
                     {
-                        Connection = connection,
-                        CommandType = CommandType.StoredProcedure,
-                        CommandText = "UniqueCoupons_GetByPromotionId"
-                    };
-                    command.Parameters.Add(new SqlParameter("@PromotionId", id));
-                    using (var reader = command.ExecuteReader())
-                    {
-                        while (reader.Read())
+                        connection.Open();
+                        var command = new SqlCommand
                         {
-                            coupons.Add(GetUniqueCoupon(reader));
+                            Connection = connection,
+                            CommandType = CommandType.StoredProcedure,
+                            CommandText = "UniqueCoupons_GetByPromotionId"
+                        };
+                        command.Parameters.Add(new SqlParameter("@PromotionId", id));
+                        using (var reader = command.ExecuteReader())
+                        {
+                            while (reader.Read())
+                            {
+                                coupons.Add(GetUniqueCoupon(reader));
+                            }
                         }
                     }
-                }
-                return coupons;
+
+                    return coupons;
+                }, x => GetCacheEvictionPolicy(x), ReadStrategy.Wait);
             }
             catch (Exception exn)
             {
@@ -162,28 +183,31 @@ namespace Foundation.Commerce.Marketing
         {
             try
             {
-                UniqueCoupon coupon = null;
-                var connectionString = _connectionHandler.Commerce.ConnectionString;
-                using (var connection = new SqlConnection(connectionString))
+                return _cache.ReadThrough(GetCouponCacheKey(id), () =>
                 {
-                    connection.Open();
-                    var command = new SqlCommand
+                    UniqueCoupon coupon = null;
+                    var connectionString = _connectionHandler.Commerce.ConnectionString;
+                    using (var connection = new SqlConnection(connectionString))
                     {
-                        Connection = connection,
-                        CommandType = CommandType.StoredProcedure,
-                        CommandText = "UniqueCoupons_GetById"
-                    };
-                    command.Parameters.Add(new SqlParameter("@Id", id));
-                    using (var reader = command.ExecuteReader())
-                    {
-                        while (reader.Read())
+                        connection.Open();
+                        var command = new SqlCommand
                         {
-                            coupon = GetUniqueCoupon(reader);
+                            Connection = connection,
+                            CommandType = CommandType.StoredProcedure,
+                            CommandText = "UniqueCoupons_GetById"
+                        };
+                        command.Parameters.Add(new SqlParameter("@Id", id));
+                        using (var reader = command.ExecuteReader())
+                        {
+                            while (reader.Read())
+                            {
+                                coupon = GetUniqueCoupon(reader);
+                            }
                         }
                     }
-                }
 
-                return coupon;
+                    return coupon;
+                }, ReadStrategy.Wait);
             }
             catch (Exception exn)
             {
@@ -220,9 +244,9 @@ namespace Foundation.Commerce.Marketing
                 row[IdColumn] = coupon.Id;
                 row[PromotionIdColumn] = coupon.PromotionId;
                 row[CodeColumn] = coupon.Code;
-                row[ValidColumn] = coupon.Valid;
+                row[ValidColumn] = coupon.ValidFrom;
                 row[ExpirationColumn] = coupon.Expiration ?? (object)DBNull.Value;
-                row[CustomerIdColumn] = coupon.CustomerId ?? (object)DBNull.Value; ;
+                row[CustomerIdColumn] = coupon.CustomerId ?? (object)DBNull.Value;
                 row[CreatedColumn] = coupon.Created;
                 row[MaxRedemptionsColumn] = coupon.MaxRedemptions;
                 row[UsedRedemptionsColumn] = coupon.UsedRedemptions;
@@ -230,6 +254,31 @@ namespace Foundation.Commerce.Marketing
             }
 
             return tblUniqueCoupon;
+        }
+
+        private void InvalidatePromotionCache(int id)
+        {
+            _cache.Remove(GetPromotionCacheKey(id));
+        }
+
+        private string GetPromotionCacheKey(int id)
+        {
+            return PromotionCachePrefix + id;
+        }
+
+        private void InvalidateCouponCache(long id)
+        {
+            _cache.Remove(GetCouponCacheKey(id));
+        }
+
+        private string GetCouponCacheKey(long id)
+        {
+            return CouponCachePrefix + id;
+        }
+
+        private CacheEvictionPolicy GetCacheEvictionPolicy(List<UniqueCoupon> coupons)
+        {
+            return new CacheEvictionPolicy(TimeSpan.FromHours(1), CacheTimeoutType.Absolute, coupons.Select(x => GetCouponCacheKey(x.Id)));
         }
 
         private UniqueCoupon GetUniqueCoupon(IDataReader row)
@@ -246,7 +295,7 @@ namespace Foundation.Commerce.Marketing
                 MaxRedemptions = Convert.ToInt32(row[MaxRedemptionsColumn]),
                 PromotionId = Convert.ToInt32(row[PromotionIdColumn]),
                 UsedRedemptions = Convert.ToInt32(row[UsedRedemptionsColumn]),
-                Valid = Convert.ToDateTime(row[ValidColumn])
+                ValidFrom = Convert.ToDateTime(row[ValidColumn])
             };
         }
     }

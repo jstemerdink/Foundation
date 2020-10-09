@@ -3,15 +3,16 @@ using EPiServer.Web.Mvc;
 using Foundation.Cms;
 using Foundation.Commerce;
 using Foundation.Commerce.Customer.Services;
-using Foundation.Commerce.Order.Services;
-using Foundation.Commerce.Order.ViewModels;
+using Foundation.Features.Checkout.Services;
+using Foundation.Features.Checkout.ViewModels;
+using Foundation.Features.MyOrganization.Organization;
 using System.Collections.Generic;
 using System.Web.Mvc;
 
 namespace Foundation.Features.NamedCarts.OrderPadsPage
 {
     [Authorize]
-    public class OrderPadsPageController : PageController<Commerce.Models.Pages.OrderPadsPage>
+    public class OrderPadsPageController : PageController<OrderPadsPage>
     {
         private readonly ICustomerService _customerService;
         private readonly ICartService _cartService;
@@ -26,10 +27,10 @@ namespace Foundation.Features.NamedCarts.OrderPadsPage
         }
 
         [NavigationAuthorize("Admin,Approver")]
-        public ActionResult Index(Commerce.Models.Pages.OrderPadsPage currentPage)
+        public ActionResult Index(OrderPadsPage currentPage)
         {
-            var currentOrganization = !string.IsNullOrEmpty(_cookieService.Get(Constant.Fields.SelectedSuborganization))
-               ? _organizationService.GetSubFoundationOrganizationById(_cookieService.Get(Constant.Fields.SelectedSuborganization))
+            var currentOrganization = !string.IsNullOrEmpty(_cookieService.Get(Constant.Fields.SelectedOrganization))
+               ? _organizationService.GetSubFoundationOrganizationById(_cookieService.Get(Constant.Fields.SelectedOrganization))
                : _organizationService.GetCurrentFoundationOrganization();
 
             var viewModel = new OrderPadsPageViewModel
@@ -42,7 +43,7 @@ namespace Foundation.Features.NamedCarts.OrderPadsPage
 
             if (currentOrganization != null)
             {
-                if (string.IsNullOrEmpty(_cookieService.Get(Constant.Fields.SelectedSuborganization)))
+                if (string.IsNullOrEmpty(_cookieService.Get(Constant.Fields.SelectedOrganization)))
                 {
                     // Has suborganizatons. (is Organization)
                     foreach (var suborganization in currentOrganization.SubOrganizations)
@@ -90,6 +91,5 @@ namespace Foundation.Features.NamedCarts.OrderPadsPage
 
             return orderPadOrganization;
         }
-
     }
 }

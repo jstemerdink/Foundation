@@ -1,6 +1,7 @@
 ﻿@using Foundation.Social.ViewModels
+@using Foundation.Features.CatalogContent.Variation
 
-@model Foundation.Commerce.Catalog.ViewModels.GenericVariantViewModel
+@model GenericVariantViewModel
 
 <div class="row product-detail">
     @Html.Partial("_VariantDetail", Model)
@@ -41,7 +42,6 @@
                 </a>
             </li>
         </ul>
-
         <div class="tab-content">
             <div class="tab-pane product-tab__content fade in active show" id="product_tabs_description">
                 @Html.PropertyFor(x => x.CurrentContent.Description)
@@ -65,51 +65,3 @@
         </div>
     </div>
 </div>
-
-@*<br />
-    @if (Model.ShowRecommendations)
-    {
-        <section class="related-products">
-            <div class="container">
-                <div class="row">
-                    <div class="new_title center">
-                        <h2>@Html.TranslateFallback("/Shared/RelatedProducts", "Related Products")</h2>
-                    </div>
-                    @{ Html.RenderAction("Index", "Recommendations", new { recommendations = Model.AlternativeProducts });}
-                </div>
-            </div>
-        </section>
-    }
-
-    <br />
-    @if (Model.ShowRecommendations)
-    {
-        <section class="upsell-pro">
-            <div class="container">
-                <div class="row">
-                    <div class="new_title center">
-                        <h2>@Html.TranslateFallback("/Shared/RecommendationsForYou", "Recommendations for you")</h2>
-                    </div>
-                    @{ Html.RenderAction("Index", "Recommendations", new { recommendations = Model.CrossSellProducts });}
-                </div>
-            </div>
-        </section>
-
-    }*@
-
-@section Meta {
-    @{
-        if (!String.IsNullOrEmpty(Model.CurrentContent.SeoInformation.Description))
-        {
-            <meta property="description" content="@Html.AttributeEncode(Model.CurrentContent.SeoInformation.Description)" />
-        }
-        else if (Model.CurrentContent.Description != null && !Model.CurrentContent.Description.IsEmpty)
-        {
-            <meta property="description" content="@Html.AttributeEncode(Model.CurrentContent.Description)" />
-        }
-        if (!String.IsNullOrEmpty(Model.CurrentContent.SeoInformation.Keywords))
-        {
-            <meta property="keywords" content="@Html.AttributeEncode(Model.CurrentContent.SeoInformation.Keywords)" />
-        }
-    }
-}

@@ -3,7 +3,7 @@ using EPiServer.Commerce.Marketing;
 using EPiServer.Core;
 using EPiServer.Globalization;
 using EPiServer.Shell.Navigation;
-using Foundation.Cms.ViewModels;
+using Foundation.Cms;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -23,11 +23,10 @@ namespace Foundation.Commerce.Marketing
             _couponService = couponService;
         }
 
-        [MenuItem("/global/foundation/coupons", TextResourceKey = "/Shared/Coupons", SortIndex = 100)]
+        [MenuItem("/global/foundation/coupons", TextResourceKey = "/Shared/Coupons", SortIndex = 200)]
         [HttpGet]
         public ActionResult Index()
         {
-
             var promotions = GetPromotions(_contentLoader.GetDescendents(GetCampaignRoot()))
                 .ToList();
 
@@ -38,6 +37,7 @@ namespace Foundation.Commerce.Marketing
         }
 
         [HttpPost]
+        [ValidateAntiForgeryToken]
         public ActionResult Index(PagingInfo pagingInfo)
         {
             var promotions = GetPromotions(_contentLoader.GetDescendents(GetCampaignRoot()))
@@ -62,39 +62,36 @@ namespace Foundation.Commerce.Marketing
                 Coupons = coupons ?? new List<UniqueCoupon>(),
                 Promotion = promotion,
                 PromotionId = promotion.ContentLink.ID,
-                MaxRedemptions = 1,
-                ValidFrom = DateTime.Now
+                MaxRedemptions = 1
             });
         }
 
         [HttpPost]
-        public ActionResult UpdateCoupon(UniqueCoupon model)
+        [ValidateAntiForgeryToken]
+        public string UpdateOrDeleteCoupon(UniqueCoupon model, string actionType)
         {
-            var coupon = _couponService.GetById(model.Id);
-            if (coupon != null)
+            if (actionType.Equals("update", StringComparison.Ordinal))
             {
-                coupon.Code = model.Code;
-                coupon.Expiration = model.Expiration;
-                coupon.MaxRedemptions = model.MaxRedemptions;
-                coupon.UsedRedemptions = model.UsedRedemptions;
-                coupon.Valid = model.Valid;
-                _couponService.SaveCoupons(new List<UniqueCoupon> { coupon });
+                var updated = false;
+                var coupon = _couponService.GetById(model.Id);
+
+                if (coupon != null)
+                {
+                    coupon.Code = model.Code;
+                    coupon.Expiration = model.Expiration;
+                    coupon.MaxRedemptions = model.MaxRedemptions;
+                    coupon.UsedRedemptions = model.UsedRedemptions;
+                    coupon.ValidFrom = model.ValidFrom;
+                    updated = _couponService.SaveCoupons(new List<UniqueCoupon> { coupon });
+                }
+
+                return updated ? "update_ok" : "update_nok";
             }
-
-            return new ContentResult
+            else
             {
-                Content = model.PromotionId.ToString()
-            };
-        }
-
-        [HttpPost]
-        public ActionResult DeleteCoupon(long id, int promotionId)
-        {
-            _couponService.DeleteById(id);
-            return new ContentResult
-            {
-                Content = promotionId.ToString()
-            };
+                var deleted = _couponService.DeleteById(model.Id);
+                return deleted ? "delete_ok" : "delete_nok";
+            }
         }
 
         [HttpPost]
@@ -112,7 +109,7 @@ namespace Foundation.Commerce.Marketing
                     MaxRedemptions = model.MaxRedemptions,
                     PromotionId = model.PromotionId,
                     UsedRedemptions = 0,
-                    Valid = model.ValidFrom
+                    ValidFrom = model.ValidFrom
                 });
             }
 
@@ -124,7 +121,6 @@ namespace Foundation.Commerce.Marketing
         {
             return _contentLoader.GetChildren<SalesCampaignFolder>(ContentReference.RootPage)
                 .FirstOrDefault()?.ContentLink ?? ContentReference.EmptyReference;
-
         }
 
         private List<PromotionData> GetPromotions(IEnumerable<ContentReference> references)

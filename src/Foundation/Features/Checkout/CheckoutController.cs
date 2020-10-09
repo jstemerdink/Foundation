@@ -7,14 +7,20 @@ using EPiServer.Web.Mvc;
 using EPiServer.Web.Mvc.Html;
 using EPiServer.Web.Routing;
 using Foundation.Cms.Identity;
+using Foundation.Cms.Settings;
 using Foundation.Commerce;
 using Foundation.Commerce.Customer.Services;
-using Foundation.Commerce.Customer.ViewModels;
-using Foundation.Commerce.Models.Pages;
-using Foundation.Commerce.Order.Services;
-using Foundation.Commerce.Order.ViewModelFactories;
-using Foundation.Commerce.Order.ViewModels;
-using Foundation.Commerce.Personalization;
+using Foundation.Commerce.GiftCard;
+using Foundation.Features.Checkout.Payments;
+using Foundation.Features.Checkout.Services;
+using Foundation.Features.Checkout.ViewModels;
+using Foundation.Features.MyAccount.AddressBook;
+using Foundation.Features.MyOrganization.Organization;
+using Foundation.Features.NamedCarts;
+using Foundation.Features.Settings;
+using Foundation.Personalization;
+using Mediachase.Commerce;
+using Mediachase.Commerce.Shared;
 using Microsoft.AspNet.Identity.Owin;
 using System;
 using System.Collections.Generic;
@@ -44,6 +50,9 @@ namespace Foundation.Features.Checkout
         private readonly UrlResolver _urlResolver;
         private readonly ICustomerService _customerContext;
         private readonly IOrganizationService _organizationService;
+        private readonly ShipmentViewModelFactory _shipmentViewModelFactory;
+        private readonly IGiftCardService _giftCardService;
+        private readonly ISettingsService _settingsService;
 
         public CheckoutController(
             IOrderRepository orderRepository,
@@ -61,7 +70,10 @@ namespace Foundation.Features.Checkout
             IContentLoader contentLoader,
             UrlResolver urlResolver,
             ICustomerService customerContext,
-            IOrganizationService organizationService)
+            IOrganizationService organizationService,
+            ShipmentViewModelFactory shipmentViewModelFactory,
+            IGiftCardService giftCardService,
+            ISettingsService settingsService)
         {
             _orderRepository = orderRepository;
             _checkoutViewModelFactory = checkoutViewModelFactory;
@@ -79,33 +91,68 @@ namespace Foundation.Features.Checkout
             _urlResolver = urlResolver;
             _customerContext = customerContext;
             _organizationService = organizationService;
+            _shipmentViewModelFactory = shipmentViewModelFactory;
+            _giftCardService = giftCardService;
+            _settingsService = settingsService;
         }
 
         [HttpGet]
         [OutputCache(Duration = 0, NoStore = true)]
-        public ActionResult Index(CheckoutPage currentPage)
+        public ActionResult Index(CheckoutPage currentPage, int? isGuest)
         {
             if (CartIsNullOrEmpty())
             {
                 return View("EmptyCart", new CheckoutMethodViewModel(currentPage));
             }
 
-            if (!Request.IsAuthenticated)
+            if (!Request.IsAuthenticated && (!isGuest.HasValue || isGuest.Value != 1))
             {
                 return RedirectToAction("CheckoutMethod", new { node = currentPage.ContentLink });
             }
 
-            if (CartWithValidationIssues.Cart.GetFirstForm().Shipments.Count(x => x.ShippingMethodId != _cartService.InStorePickupInfoModel.MethodId) == 1)
+            if (CartWithValidationIssues.Cart.GetFirstShipment().ShippingMethodId == Guid.Empty)
             {
-                return RedirectToAction("SingleAddress", new { node = currentPage.ContentLink });
+                _checkoutService.UpdateShippingMethods(CartWithValidationIssues.Cart, _shipmentViewModelFactory.CreateShipmentsViewModel(CartWithValidationIssues.Cart).ToList());
+                _orderRepository.Save(CartWithValidationIssues.Cart);
             }
 
-            if (CartWithValidationIssues.Cart.GetFirstForm().Shipments.All(x => x.ShippingMethodId == _cartService.InStorePickupInfoModel.MethodId))
+            var viewModel = CreateCheckoutViewModel(currentPage);
+            viewModel.OrderSummary = _orderSummaryViewModelFactory.CreateOrderSummaryViewModel(CartWithValidationIssues.Cart);
+            viewModel.BillingAddress = _addressBookService.ConvertToModel(CartWithValidationIssues.Cart.GetFirstForm()?.Payments.FirstOrDefault()?.BillingAddress);
+            _addressBookService.LoadAddress(viewModel.BillingAddress);
+
+            if (viewModel.Shipments.Count == 1)
             {
-                return RedirectToAction("BillingInformation", new { node = currentPage.ContentLink });
+                viewModel.BillingAddressType = 2;
+            }
+            else if (Request.IsAuthenticated)
+            {
+                viewModel.BillingAddressType = 1;
+            }
+            else
+            {
+                viewModel.BillingAddressType = 0;
             }
 
-            return RedirectToAction("MutipleAddresses", new { node = currentPage.ContentLink });
+            var shippingAddressType = Request.IsAuthenticated ? 1 : 0;
+            for (var i = 0; i < viewModel.Shipments.Count; i++)
+            {
+                if (string.IsNullOrEmpty(viewModel.Shipments[i].Address.AddressId))
+                {
+                    viewModel.Shipments[i].ShippingAddressType = shippingAddressType;
+                }
+                else
+                {
+                    viewModel.Shipments[i].ShippingAddressType = 1;
+                }
+            }
+
+            if (TempData[Constant.ErrorMessages] != null)
+            {
+                ViewBag.ErrorMessages = (string)TempData[Constant.ErrorMessages];
+            }
+
+            return View("Checkout", viewModel);
         }
 
         [HttpGet]
@@ -114,37 +161,6 @@ namespace Foundation.Features.Checkout
         {
             var viewModel = new CheckoutMethodViewModel(currentPage, _urlHelper.Action("Index", "Checkout"));
             return View("CheckoutMethod", viewModel);
-        }
-
-        [HttpGet]
-        [OutputCache(Duration = 0, NoStore = true)]
-        public ActionResult ShippingInformation(CheckoutPage currentPage)
-        {
-            var viewModel = CreateCheckoutViewModel(currentPage);
-            return View("ShippingInformation", viewModel);
-        }
-
-        [HttpGet]
-        [OutputCache(Duration = 0, NoStore = true)]
-        public ActionResult BillingInformation(CheckoutPage currentPage, int? addressType)
-        {
-            var viewModel = CreateCheckoutViewModel(currentPage);
-            viewModel.OrderSummary = _orderSummaryViewModelFactory.CreateOrderSummaryViewModel(CartWithValidationIssues.Cart);
-            viewModel.BillingAddress = _addressBookService.ConvertToModel(CartWithValidationIssues.Cart.GetFirstForm()?.Payments.FirstOrDefault()?.BillingAddress);
-            _addressBookService.LoadAddress(viewModel.BillingAddress);
-            if (addressType == null && Request.IsAuthenticated)
-            {
-                viewModel.AddressType = 1;
-            }
-            else if (addressType == null)
-            {
-                viewModel.AddressType = 0;
-            }
-            else
-            {
-                viewModel.AddressType = addressType.Value;
-            }
-            return View("BillingInformation", viewModel);
         }
 
         [HttpGet]
@@ -174,46 +190,6 @@ namespace Foundation.Features.Checkout
             return View("PunchoutOrder", viewModel);
         }
 
-        [HttpGet]
-        [OutputCache(Duration = 0, NoStore = true)]
-        public ActionResult SingleAddress(CheckoutPage currentPage, int? addressType)
-        {
-            var viewModel = CreateCheckoutViewModel(currentPage);
-            if (addressType == null && Request.IsAuthenticated)
-            {
-                viewModel.AddressType = 1;
-            }
-            else if (addressType == null)
-            {
-                viewModel.AddressType = 0;
-            }
-            else
-            {
-                viewModel.AddressType = addressType.Value;
-            }
-
-            return View("SingleAddress", viewModel);
-        }
-
-        [HttpGet]
-        public ActionResult MutipleAddresses(CheckoutPage currentPage)
-        {
-            var viewModel = _multiShipmentViewModelFactory.CreateMultiShipmentViewModel(CartWithValidationIssues.Cart, currentPage, User.Identity.IsAuthenticated);
-            return View("MultipleAddresses", viewModel);
-        }
-
-        [HttpGet]
-        public ActionResult SingleShipment(CheckoutPage currentPage)
-        {
-            if (!CartIsNullOrEmpty())
-            {
-                _cartService.MergeShipments(CartWithValidationIssues.Cart);
-                _orderRepository.Save(CartWithValidationIssues.Cart);
-            }
-
-            return RedirectToAction("Index", new { node = currentPage.ContentLink });
-        }
-
         [HttpPost]
         public ActionResult Update(CheckoutPage currentPage, UpdateShippingMethodViewModel shipmentViewModel, IPaymentMethod paymentOption)
         {
@@ -229,19 +205,55 @@ namespace Foundation.Features.Checkout
         }
 
         [HttpPost]
-        public ActionResult ChangeAddress(UpdateAddressViewModel addressViewModel)
+        public ActionResult ChangeAddress(CheckoutPage currentPage, UpdateAddressViewModel addressViewModel)
         {
             ModelState.Clear();
-            var viewModel = CreateCheckoutViewModel(addressViewModel.CurrentPage);
-            _checkoutService.CheckoutAddressHandling.ChangeAddress(viewModel, addressViewModel);
+            try
+            {
+                var viewModel = CreateCheckoutViewModel(currentPage);
+                viewModel.BillingAddress = _addressBookService.ConvertToModel(CartWithValidationIssues.Cart.GetFirstForm()?.Payments.FirstOrDefault()?.BillingAddress);
+                _addressBookService.LoadAddress(viewModel.BillingAddress);
+                _checkoutService.CheckoutAddressHandling.ChangeAddress(viewModel, addressViewModel);
+                _checkoutService.ChangeAddress(CartWithValidationIssues.Cart, viewModel, addressViewModel);
+                _orderRepository.Save(CartWithValidationIssues.Cart);
+                return Json(new { Status = true });
+            }
+            catch (Exception e)
+            {
+                return Json(new { Status = false, Message = e.Message });
+            }
+        }
 
-            _checkoutService.UpdateShippingAddresses(CartWithValidationIssues.Cart, viewModel);
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public ActionResult AddAddress(CheckoutPage currentPage, AddressModel viewModel, string returnUrl)
+        {
+            if (string.IsNullOrEmpty(viewModel.Name))
+            {
+                ModelState.AddModelError("Address.Name", _localizationService.GetString("/Shared/Address/Form/Empty/Name", "Name is required"));
+            }
 
-            _orderRepository.Save(CartWithValidationIssues.Cart);
+            if (!_addressBookService.CanSave(viewModel))
+            {
+                ModelState.AddModelError("Address.Name", _localizationService.GetString("/AddressBook/Form/Error/ExistingAddress", "An address with the same name already exists"));
+            }
 
-            var addressViewName = addressViewModel.ShippingAddressIndex > -1 ? "SingleShippingAddress" : "BillingAddress";
+            if (!ModelState.IsValid)
+            {
+                var error = ModelState.Select(x =>
+                {
+                    if (x.Value.Errors.Count > 0)
+                    {
+                        return x.Key + ": " + string.Join(" ", x.Value.Errors.Select(y => y.ErrorMessage)) + "</br>";
+                    }
+                    return "";
+                });
 
-            return PartialView(addressViewName, viewModel);
+                return Json(new { Status = false, Message = error });
+            }
+
+            _addressBookService.Save(viewModel);
+            return Json(new { Status = true, RedirectUrl = returnUrl });
         }
 
         [AcceptVerbs(HttpVerbs.Get | HttpVerbs.Post)]
@@ -261,8 +273,10 @@ namespace Foundation.Features.Checkout
 
                 foreach (var payment in model.Payments)
                 {
-                    var paymentViewmodel = new CheckoutViewModel();
-                    paymentViewmodel.Payment = payment;
+                    var paymentViewmodel = new CheckoutViewModel
+                    {
+                        Payment = payment
+                    };
                     _checkoutService.RemovePaymentFromCart(CartWithValidationIssues.Cart, paymentViewmodel);
                 }
                 _orderRepository.Save(CartWithValidationIssues.Cart);
@@ -285,8 +299,10 @@ namespace Foundation.Features.Checkout
 
             foreach (var payment in model.Payments)
             {
-                var paymentViewmodel = new CheckoutViewModel();
-                paymentViewmodel.Payment = payment;
+                var paymentViewmodel = new CheckoutViewModel
+                {
+                    Payment = payment
+                };
                 _checkoutService.RemovePaymentFromCart(CartWithValidationIssues.Cart, paymentViewmodel);
             }
             _orderRepository.Save(CartWithValidationIssues.Cart);
@@ -362,7 +378,7 @@ namespace Foundation.Features.Checkout
                 }
             }
 
-            var confirmationSentSuccessfully = _checkoutService.SendConfirmation(viewModel, purchaseOrder);
+            var confirmationSentSuccessfully = await _checkoutService.SendConfirmation(viewModel, purchaseOrder);
             //await _checkoutService.CreateOrUpdateBoughtProductsProfileStore(CartWithValidationIssues.Cart);
             //await _checkoutService.CreateBoughtProductsSegments(CartWithValidationIssues.Cart);
             await _recommendationService.TrackOrder(HttpContext, purchaseOrder);
@@ -385,19 +401,14 @@ namespace Foundation.Features.Checkout
                 return RedirectToAction("Index", "Login", new { returnUrl = content != null ? _urlHelper.ContentUrl(content.ContentLink) : "/" });
             }
 
-            if (CartWithValidationIssues.Cart.GetFirstForm().Shipments.All(x => x.ShippingMethodId != _cartService.InStorePickupInfoModel.MethodId))
-            {
-                return RedirectToAction("SingleAddress", new { node = content.ContentLink });
-            }
-
-            return RedirectToAction(CartWithValidationIssues.Cart.GetFirstForm().Shipments.Count == 1 ? "ShippingInformation" : "MutipleAddresses", new { node = content.ContentLink });
+            return RedirectToAction("Index", new { node = content.ContentLink, isGuest = 1 });
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public ActionResult Login(CheckoutMethodViewModel viewModel)
+        public async Task<ActionResult> Login(CheckoutMethodViewModel viewModel)
         {
-            var result = _applicationSignInManager.PasswordSignInAsync(viewModel.LoginViewModel.Email, viewModel.LoginViewModel.Password, true, true).Result;
+            var result = await _applicationSignInManager.PasswordSignInAsync(viewModel.LoginViewModel.Email, viewModel.LoginViewModel.Password, true, true);
             switch (result)
             {
                 case SignInStatus.Success:
@@ -412,91 +423,89 @@ namespace Foundation.Features.Checkout
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public ActionResult UpdateSingleShipmentAddress(CheckoutViewModel checkoutViewModel)
+        public ActionResult UpdateShippingMethods(CheckoutPage currentPage, CheckoutViewModel viewModel)
         {
-            ModelState.Clear();
-            var content = Request.RequestContext.GetRoutedData<CheckoutPage>();
-            var viewModel = CreateCheckoutViewModel(content);
-            if (checkoutViewModel.AddressType == 0)
-            {
-                checkoutViewModel.Shipments[0].Address.AddressId = null;
-                checkoutViewModel.Shipments[0].Address.Name = DateTime.Now.ToString();
-                _addressBookService.Save(checkoutViewModel.Shipments[0].Address);
-                viewModel.Shipments[0].Address = checkoutViewModel.Shipments[0].Address;
-            }
-            else
-            {
-                if (string.IsNullOrEmpty(checkoutViewModel.Shipments[0].Address.AddressId))
-                {
-                    viewModel.AddressType = 1;
-                    ModelState.AddModelError("Shipments[0].Address.AddressId", "Address is required.");
-                    return View("SingleAddress", viewModel);
-                }
-
-                _addressBookService.LoadAddress(checkoutViewModel.Shipments[0].Address);
-                viewModel.Shipments[0].Address = checkoutViewModel.Shipments[0].Address;
-            }
-
-            _checkoutService.UpdateShippingAddresses(CartWithValidationIssues.Cart, viewModel);
+            _checkoutService.UpdateShippingMethods(CartWithValidationIssues.Cart, viewModel.Shipments);
+            _checkoutService.ApplyDiscounts(CartWithValidationIssues.Cart);
             _orderRepository.Save(CartWithValidationIssues.Cart);
 
-            return RedirectToAction("ShippingInformation", "Checkout");
+            var model = CreateCheckoutViewModel(currentPage);
+
+            foreach (var payment in model.Payments)
+            {
+                var paymentViewmodel = new CheckoutViewModel
+                {
+                    Payment = payment
+                };
+                _checkoutService.RemovePaymentFromCart(CartWithValidationIssues.Cart, paymentViewmodel);
+            }
+            _orderRepository.Save(CartWithValidationIssues.Cart);
+            model = CreateCheckoutViewModel(currentPage);
+            model.OrderSummary = _orderSummaryViewModelFactory.CreateOrderSummaryViewModel(CartWithValidationIssues.Cart);
+            return PartialView("_AddPayment", model);
         }
-
-        //[HttpPost]
-        //public ActionResult UpdateMultipleShipmentAddresses(MultiAddressViewModel viewModel)
-        //{
-        //    for (var i = 0; i < viewModel.CartItems.Length; i++)
-        //    {
-        //        if (string.IsNullOrEmpty(viewModel.CartItems[i].AddressId))
-        //        {
-        //            ModelState.AddModelError($"CartItems[{i}].AddressId", _localizationService.GetString("/Checkout/MultiShipment/Empty/AddressId"));
-        //        }
-        //    }
-
-        //    var content = Request.RequestContext.GetRoutedData<CheckoutPage>();
-        //    if (!ModelState.IsValid)
-        //    {
-        //        return View("MultipleAddresses", _multiShipmentViewModelFactory.CreateMultiShipmentViewModel(CartWithValidationIssues.Cart, content, User.Identity.IsAuthenticated));
-        //    }
-
-        //    _cartService.RecreateLineItemsBasedOnShipments(CartWithValidationIssues.Cart, viewModel.CartItems, GetAddresses(viewModel));
-
-        //    _orderRepository.Save(CartWithValidationIssues.Cart);
-
-        //    return RedirectToAction("ShippingInformation", "Checkout");
-        //}
 
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<ActionResult> PlaceOrder(CheckoutPage currentPage, CheckoutViewModel checkoutViewModel)
         {
-            var purchaseOrder = _checkoutService.PlaceOrder(CartWithValidationIssues.Cart, ModelState, checkoutViewModel);
-            if (purchaseOrder == null)
-            {
-                var viewModel = CreateCheckoutViewModel(currentPage);
-                viewModel.OrderSummary = _orderSummaryViewModelFactory.CreateOrderSummaryViewModel(CartWithValidationIssues.Cart);
-                return View("PlaceOrder", viewModel);
-            }
-            if (Request.IsAuthenticated)
-            {
-                var contact = _customerContext.GetCurrentContact().Contact;
-                var organization = contact.ContactOrganization;
-                if (organization != null)
-                {
-                    purchaseOrder.Properties[Constant.Customer.CustomerFullName] = contact.FullName;
-                    purchaseOrder.Properties[Constant.Customer.CustomerEmailAddress] = contact.Email;
-                    purchaseOrder.Properties[Constant.Customer.CurrentCustomerOrganization] = organization.Name;
-                    _orderRepository.Save(purchaseOrder);
-                }
-            }
-            checkoutViewModel.CurrentContent = currentPage;
-            var confirmationSentSuccessfully = _checkoutService.SendConfirmation(checkoutViewModel, purchaseOrder);
-            //await _checkoutService.CreateOrUpdateBoughtProductsProfileStore(CartWithValidationIssues.Cart);
-            //await _checkoutService.CreateBoughtProductsSegments(CartWithValidationIssues.Cart);
-            await _recommendationService.TrackOrder(HttpContext, purchaseOrder);
+            // shipping information
+            UpdateShipmentAddress(checkoutViewModel);
 
-            return Redirect(_checkoutService.BuildRedirectionUrl(checkoutViewModel, purchaseOrder, confirmationSentSuccessfully));
+            // subscription
+            AddSubscription(checkoutViewModel);
+
+            // billing address
+            UpdatePaymentAddress(checkoutViewModel);
+            _orderRepository.Save(CartWithValidationIssues.Cart);
+
+            try
+            {
+                var purchaseOrder = _checkoutService.PlaceOrder(CartWithValidationIssues.Cart, ModelState, checkoutViewModel);
+                if (purchaseOrder == null)
+                {
+                    TempData[Constant.ErrorMessages] = "There is no payment was processed";
+                    return RedirectToAction("Index");
+                }
+
+                if (checkoutViewModel.BillingAddressType == 0)
+                {
+                    _addressBookService.Save(checkoutViewModel.BillingAddress);
+                }
+
+                foreach (var shipment in checkoutViewModel.Shipments)
+                {
+                    if (shipment.ShippingAddressType == 0 && shipment.ShippingMethodId != _cartService.InStorePickupInfoModel.MethodId)
+                    {
+                        _addressBookService.Save(shipment.Address);
+                    }
+                }
+
+                if (Request.IsAuthenticated)
+                {
+                    var contact = _customerContext.GetCurrentContact().Contact;
+                    var organization = contact.ContactOrganization;
+                    if (organization != null)
+                    {
+                        purchaseOrder.Properties[Constant.Customer.CustomerFullName] = contact.FullName;
+                        purchaseOrder.Properties[Constant.Customer.CustomerEmailAddress] = contact.Email;
+                        purchaseOrder.Properties[Constant.Customer.CurrentCustomerOrganization] = organization.Name;
+                        _orderRepository.Save(purchaseOrder);
+                    }
+                }
+                checkoutViewModel.CurrentContent = currentPage;
+                var confirmationSentSuccessfully = await _checkoutService.SendConfirmation(checkoutViewModel, purchaseOrder);
+                //await _checkoutService.CreateOrUpdateBoughtProductsProfileStore(CartWithValidationIssues.Cart);
+                //await _checkoutService.CreateBoughtProductsSegments(CartWithValidationIssues.Cart);
+                await _recommendationService.TrackOrder(HttpContext, purchaseOrder);
+
+                return Redirect(_checkoutService.BuildRedirectionUrl(checkoutViewModel, purchaseOrder, confirmationSentSuccessfully));
+            }
+            catch (Exception e)
+            {
+                TempData[Constant.ErrorMessages] = e.Message;
+                return RedirectToAction("Index");
+            }
         }
 
         [HttpPost]
@@ -510,17 +519,6 @@ namespace Foundation.Features.Checkout
             return PartialView(partialView, viewModel.Payment);
         }
 
-
-        [HttpPost]
-        [ValidateAntiForgeryToken]
-        public ActionResult UpdateShippingMethods(CheckoutViewModel viewModel)
-        {
-            _checkoutService.UpdateShippingMethods(CartWithValidationIssues.Cart, viewModel.Shipments);
-            _checkoutService.ApplyDiscounts(CartWithValidationIssues.Cart);
-            _orderRepository.Save(CartWithValidationIssues.Cart);
-            return RedirectToAction("BillingInformation", "Checkout");
-        }
-
         [HttpPost]
         public ActionResult UpdatePayment(CheckoutPage currentPage, CheckoutViewModel viewModel, IPaymentMethod paymentOption)
         {
@@ -529,19 +527,30 @@ namespace Foundation.Features.Checkout
                 return View(viewModel);
             }
 
+            if (paymentOption is GiftCardPaymentOption)
+            {
+                var giftCard = _giftCardService.GetGiftCard(((GiftCardPaymentOption)paymentOption).SelectedGiftCardId);
+                var paymentTotal = CurrencyFormatter.ConvertCurrency(new Money(viewModel.OrderSummary.PaymentTotal, CartWithValidationIssues.Cart.Currency), Currency.USD);
+                if (paymentTotal > giftCard.RemainBalance)
+                {
+                    return new HttpStatusCodeResult(HttpStatusCode.BadRequest, "Not enought money in Gift Card");
+                }
+            }
+
             viewModel.Payment = paymentOption;
             _checkoutService.CreateAndAddPaymentToCart(CartWithValidationIssues.Cart, viewModel);
             _orderRepository.Save(CartWithValidationIssues.Cart);
 
             var model = CreateCheckoutViewModel(currentPage);
             model.OrderSummary = _orderSummaryViewModelFactory.CreateOrderSummaryViewModel(CartWithValidationIssues.Cart);
+
             if (Request.IsAuthenticated)
             {
-                model.AddressType = 1;
+                model.BillingAddressType = 1;
             }
             else
             {
-                model.AddressType = 0;
+                model.BillingAddressType = 0;
             }
             return PartialView("_AddPayment", model);
         }
@@ -562,81 +571,114 @@ namespace Foundation.Features.Checkout
             model.OrderSummary = _orderSummaryViewModelFactory.CreateOrderSummaryViewModel(CartWithValidationIssues.Cart);
             if (Request.IsAuthenticated)
             {
-                model.AddressType = 1;
+                model.BillingAddressType = 1;
             }
             else
             {
-                model.AddressType = 0;
+                model.BillingAddressType = 0;
             }
             return PartialView("_AddPayment", model);
         }
 
-        [HttpPost]
-        public ActionResult UpdatePaymentAddress(CheckoutPage currentPage, CheckoutViewModel viewModel)
+        public void UpdatePaymentAddress(CheckoutViewModel viewModel)
         {
             var orderSummary = _orderSummaryViewModelFactory.CreateOrderSummaryViewModel(CartWithValidationIssues.Cart);
             var isMissingPayment = !CartWithValidationIssues.Cart.Forms.SelectMany(x => x.Payments).Any();
             if (isMissingPayment || orderSummary.PaymentTotal != 0)
             {
-                var model = CreateCheckoutViewModel(currentPage);
-                model.OrderSummary = orderSummary;
-                model.AddressType = viewModel.AddressType;
-                model.BillingAddress = viewModel.BillingAddress;
-
-                if (viewModel.AddressType == 1)
+                if (viewModel.BillingAddressType == 1)
                 {
                     if (string.IsNullOrEmpty(viewModel.BillingAddress.AddressId))
                     {
                         ModelState.AddModelError("BillingAddress.AddressId", "Address is required.");
-                        model.AddressType = 1;
                     }
                 }
 
                 if (isMissingPayment)
                 {
                     ModelState.AddModelError("SelectedPayment", _localizationService.GetString("/Shared/PaymentRequired"));
+                    return;
                 }
 
                 if (orderSummary.PaymentTotal != 0)
                 {
                     ModelState.AddModelError("PaymentTotal", "PaymentTotal is invalid.");
+                    return;
                 }
-
-                return View("BillingInformation", model);
             }
 
-            if (viewModel.AddressType == 1)
+            if (viewModel.BillingAddressType == 1)
             {
                 if (string.IsNullOrEmpty(viewModel.BillingAddress.AddressId))
                 {
                     ModelState.AddModelError("BillingAddress.AddressId", "Address is required.");
-                    var model = CreateCheckoutViewModel(currentPage);
-                    model.OrderSummary = orderSummary;
-                    model.AddressType = 1;
-                    return View("BillingInformation", model);
+                    return;
                 }
 
                 _addressBookService.LoadAddress(viewModel.BillingAddress);
             }
+            else if (viewModel.BillingAddressType == 2)
+            {
+                viewModel.BillingAddress = viewModel.Shipments.FirstOrDefault()?.Address;
+                if (viewModel.BillingAddress == null)
+                {
+                    ModelState.AddModelError("BillingAddress.AddressId", "Shipping address is required.");
+                    return;
+                }
+            }
             else
             {
+                var addressName = viewModel.BillingAddress.FirstName + " " + viewModel.BillingAddress.LastName;
                 viewModel.BillingAddress.AddressId = null;
-                viewModel.BillingAddress.Name = DateTime.Now.ToString();
-                _addressBookService.Save(viewModel.BillingAddress);
+                viewModel.BillingAddress.Name = addressName + " " + DateTime.Now.ToString();
             }
 
             foreach (var payment in CartWithValidationIssues.Cart.GetFirstForm().Payments)
             {
                 payment.BillingAddress = _addressBookService.ConvertToAddress(viewModel.BillingAddress, CartWithValidationIssues.Cart);
             }
-
-            _orderRepository.Save(CartWithValidationIssues.Cart);
-            return RedirectToAction("CreateSubscription", "Checkout");
         }
 
+        public void AddSubscription(CheckoutViewModel checkoutViewModel) => _checkoutService.UpdatePaymentPlan(CartWithValidationIssues.Cart, checkoutViewModel);
+
+        public void UpdateShipmentAddress(CheckoutViewModel checkoutViewModel)
+        {
+            ModelState.Clear();
+            var content = Request.RequestContext.GetRoutedData<CheckoutPage>();
+            var viewModel = CreateCheckoutViewModel(content);
+            if (!checkoutViewModel.UseShippingingAddressForBilling)
+            {
+                for (var i = 0; i < checkoutViewModel.Shipments.Count; i++)
+                {
+                    if (checkoutViewModel.Shipments[i].ShippingAddressType == 0)
+                    {
+                        var addressName = checkoutViewModel.Shipments[i].Address.FirstName + " " + checkoutViewModel.Shipments[i].Address.LastName;
+                        checkoutViewModel.Shipments[i].Address.AddressId = null;
+                        checkoutViewModel.Shipments[i].Address.Name = addressName + " " + DateTime.Now.ToString();
+                        viewModel.Shipments[i].Address = checkoutViewModel.Shipments[i].Address;
+                    }
+                    else
+                    {
+                        if (string.IsNullOrEmpty(checkoutViewModel.Shipments[i].Address.AddressId))
+                        {
+                            viewModel.Shipments[i].ShippingAddressType
+                                = 1;
+                            ModelState.AddModelError("Shipments[" + i + "].Address.AddressId", "Address is required.");
+                        }
+
+                        _addressBookService.LoadAddress(checkoutViewModel.Shipments[i].Address);
+                        viewModel.Shipments[i].Address = checkoutViewModel.Shipments[i].Address;
+                    }
+                }
+            }
+
+            _checkoutService.UpdateShippingAddresses(CartWithValidationIssues.Cart, viewModel);
+        }
+
+        // using on OrderDetail page
         public ActionResult LoadOrder(int orderLink)
         {
-            bool success = false;
+            var success = false;
             var purchaseOrder = _orderRepository.Load<IPurchaseOrder>(orderLink);
 
             DateTime.TryParse(purchaseOrder.Properties[Constant.Quote.QuoteExpireDate].ToString(), out var quoteExpireDate);
@@ -660,25 +702,52 @@ namespace Foundation.Features.Checkout
             returnedCart.Properties[Constant.Quote.ParentOrderGroupId] = purchaseOrder.OrderLink.OrderGroupId;
             _orderRepository.Save(returnedCart);
 
-
-            var checkoutPage = _contentLoader.Get<CommerceHomePage>(ContentReference.StartPage).CheckoutPage;
+            var referenceSettings = _settingsService.GetSiteSettings<ReferencePageSettings>();
             _cartService.ValidateCart(returnedCart);
-            return Json(new { link = _urlResolver.GetUrl(checkoutPage) });
+            return Json(new { link = _urlResolver.GetUrl(referenceSettings?.CheckoutPage ?? ContentReference.StartPage) });
         }
 
-        [HttpGet]
-        public ActionResult CreateSubscription(CheckoutPage currentPage)
+        public ActionResult ChangeCartItem(CheckoutPage currentPage, string code, int quantity, int shipmentId = -1)
         {
-            var viewModel = CreateCheckoutViewModel(currentPage);
-            return View("Subscription", viewModel);
+            var result = _cartService.ChangeQuantity(CartWithValidationIssues.Cart, shipmentId, code, quantity);
+            var model = CreateCheckoutViewModel(currentPage);
+
+            foreach (var payment in model.Payments)
+            {
+                var paymentViewmodel = new CheckoutViewModel
+                {
+                    Payment = payment
+                };
+                _checkoutService.RemovePaymentFromCart(CartWithValidationIssues.Cart, paymentViewmodel);
+            }
+            _orderRepository.Save(CartWithValidationIssues.Cart);
+            model = CreateCheckoutViewModel(currentPage);
+            model.OrderSummary = _orderSummaryViewModelFactory.CreateOrderSummaryViewModel(CartWithValidationIssues.Cart);
+            return PartialView("_AddPayment", model);
         }
 
         [HttpPost]
-        public ActionResult AddSubscription(CheckoutViewModel checkoutViewModel)
+        public ActionResult SeparateShipment(CheckoutPage currentPage, RequestParamsToCart param)
         {
-            _checkoutService.UpdatePaymentPlan(CartWithValidationIssues.Cart, checkoutViewModel);
-            _orderRepository.Save(CartWithValidationIssues.Cart);
-            return RedirectToAction("PlaceOrder", "Checkout");
+            var result = _cartService.SeparateShipment(CartWithValidationIssues.Cart, param.Code, (int)param.Quantity, param.ShipmentId, param.ToShipmentId, param.DeliveryMethodId, param.SelectedStore);
+
+            if (result.EntriesAddedToCart)
+            {
+                var model = CreateCheckoutViewModel(currentPage);
+                foreach (var payment in model.Payments)
+                {
+                    var paymentViewmodel = new CheckoutViewModel
+                    {
+                        Payment = payment
+                    };
+                    _checkoutService.RemovePaymentFromCart(CartWithValidationIssues.Cart, paymentViewmodel);
+                }
+                _orderRepository.Save(CartWithValidationIssues.Cart);
+
+                return Json(new { Status = true, RedirectUrl = Url.Action("Index") });
+            }
+
+            return Json(new { Status = false, Message = string.Join(", ", result.ValidationMessages) });
         }
 
         public ActionResult OnPurchaseException(ExceptionContext filterContext)
@@ -695,8 +764,6 @@ namespace Foundation.Features.Checkout
             return View(viewModel.ViewName, viewModel);
         }
 
-        //protected override void OnException(ExceptionContext filterContext) => _controllerExceptionHandler.HandleRequestValidationException(filterContext, "purchase", OnPurchaseException);
-
         private ViewResult View(CheckoutViewModel checkoutViewModel) => View(checkoutViewModel.ViewName, CreateCheckoutViewModel(checkoutViewModel.CurrentContent, checkoutViewModel.Payments.FirstOrDefault()));
 
         private CheckoutViewModel CreateCheckoutViewModel(CheckoutPage currentPage, IPaymentMethod paymentOption = null) => _checkoutViewModelFactory.CreateCheckoutViewModel(CartWithValidationIssues.Cart, currentPage, paymentOption);
@@ -704,37 +771,5 @@ namespace Foundation.Features.Checkout
         private CartWithValidationIssues CartWithValidationIssues => _cart ?? (_cart = _cartService.LoadCart(_cartService.DefaultCartName, true));
 
         private bool CartIsNullOrEmpty() => CartWithValidationIssues.Cart == null || !CartWithValidationIssues.Cart.GetAllLineItems().Any();
-
-        private IList<AddressModel> GetAddresses(MultiAddressViewModel viewModel)
-        {
-            var addresses = new List<AddressModel>();
-            var savedAddresses = _addressBookService.List();
-            var orderAddresses = CartWithValidationIssues.Cart.GetFirstForm()
-                .Shipments
-                .Select(x => x.ShippingAddress)
-                .Where(x => x != null);
-
-            foreach (var addressId in viewModel.CartItems.Select(x => x.AddressId).Distinct())
-            {
-                var address = new AddressModel { AddressId = addressId };
-                var savedAddress = savedAddresses.FirstOrDefault(x => x.AddressId.Equals(addressId));
-                if (savedAddress != null)
-                {
-                    _addressBookService.LoadAddress(address);
-                    addresses.Add(address);
-                    continue;
-                }
-
-                var orderAddress = orderAddresses.FirstOrDefault(x => x.Id.Equals(addressId));
-                if (orderAddress == null)
-                {
-                    continue;
-                }
-                addresses.Add(_addressBookService.ConvertToModel(orderAddress));
-            }
-
-
-            return addresses;
-        }
     }
 }

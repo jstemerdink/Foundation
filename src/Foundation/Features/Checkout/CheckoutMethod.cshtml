@@ -1,6 +1,6 @@
-﻿@model CheckoutMethodViewModel
+﻿@using Foundation.Features.Checkout
 
-@Html.Partial("_CheckoutStatusBar", 1)
+@model CheckoutMethodViewModel
 
 <div class="row">
     <div class="col-xs-12 col-md-6">
@@ -11,7 +11,7 @@
         {
             @Html.AntiForgeryToken()
             <div>
-                <ul>
+                <ul class="none-style-type">
                     <li class="control">
                         <label class="checkbox">
                             @Html.TranslateFallback("/Checkout/CheckoutMethod/Guest", "Checkout as Guest")
@@ -19,27 +19,17 @@
                             <span class="checkmark"></span>
                         </label>
                     </li>
-                    <li class="control">
-
-                        <label class="checkbox">
-                            @Html.TranslateFallback("/Checkout/CheckoutMethod/Register", "Register")
-                            <input type="radio" value="register" name="checkoutMethod">
-                            <span class="checkmark"></span>
-                        </label>
-                    </li>
                 </ul>
                 <br />
             </div>
-
             <div>
                 <p class="title">@Html.TranslateFallback("/Checkout/CheckoutMethod/Convience", "Register with us for future convenience:")</p>
-                <ul style="list-style-type: disc; padding-inline-start: 40px;">
+                <ul>
                     <li class="light-text">@Html.TranslateFallback("/Checkout/CheckoutMethod/EasyCheckout", "Fast and easy check out")</li>
                     <li class="light-text">@Html.TranslateFallback("/Checkout/CheckoutMethod/EasyAccess", "Easy access to your order history and status")</li>
                 </ul>
                 <br />
             </div>
-
             <div class="buttons-set">
                 <button class="button-black jsContinueCheckoutMethod" type="submit">
                     <span>@Html.TranslateFallback("/Shared/Continue", "Continue")</span>
@@ -47,7 +37,6 @@
             </div>
         }
     </div>
-
     <div class="col-xs-12 col-md-6">
         <h4>@Html.TranslateFallback("/Shared/Login", "Login")</h4>
         @using (Html.BeginForm("Login", "Checkout", FormMethod.Post))
@@ -56,19 +45,17 @@
             <div>
                 <p class="title">@Html.TranslateFallback("/Checkout/CheckoutMethod/AlreadyRegistered", "Already Registered?")</p>
                 <p class="light-text">@Html.TranslateFallback("/Checkout/CheckoutMethod/PleaseLogin", "Please log in below:")</p>
-                <ul class="checkout--form-group">
+                <ul class="checkout--form-group none-style-type">
                     <li class="checkout__form-item">
                         @Html.LabelFor(x => x.LoginViewModel.Email)<span class="required">*</span>
                         @Html.TextBoxFor(x => x.LoginViewModel.Email, new { @class = "textbox", required = "true" })
                         @Html.ValidationMessageFor(x => x.LoginViewModel.Email, null, new { @class = "required" })
                     </li>
-
                     <li class="checkout__form-item">
                         @Html.LabelFor(x => x.LoginViewModel.Password)<span class="required">*</span>
                         @Html.PasswordFor(x => x.LoginViewModel.Password, new { @class = "textbox", required = "true" })
                         @Html.ValidationMessageFor(x => x.LoginViewModel.Password, null, new { @class = "required" })
                     </li>
-
                     <li class="checkout__form-item">
                         <div class="button--group">
                             <button class="button-black" type="submit">
@@ -79,7 +66,6 @@
                     </li>
                 </ul>
             </div>
-
         }
     </div>
 </div>

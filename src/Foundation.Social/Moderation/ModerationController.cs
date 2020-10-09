@@ -1,4 +1,5 @@
 ﻿using EPiServer.Shell.Navigation;
+using Foundation.Social.Services;
 using System.Linq;
 using System.Web.Mvc;
 
@@ -10,14 +11,14 @@ namespace Foundation.Social.Moderation
 
         public ModerationController(ICommentManagerService commentManagerService) => _commentManagerService = commentManagerService;
 
-        [MenuItem("/global/foundation/commentsmanager", TextResourceKey = "/Shared/CommentsManager", SortIndex = 600)]
+        [MenuItem("/global/foundation/commentsmanager", TextResourceKey = "/Shared/CommentsManager", SortIndex = 400)]
 
         [HttpGet]
         public ActionResult Index()
         {
             var model = new ModerationViewModel
             {
-                Comments = _commentManagerService.Get(1, 10000, out var total).ToList(),
+                Comments = _commentManagerService.Get(1, 100, out var total).ToList(),
             };
 
             return View(model);
@@ -44,6 +45,5 @@ namespace Foundation.Social.Moderation
                 Content = "Delete successfully.",
             };
         }
-
     }
 }

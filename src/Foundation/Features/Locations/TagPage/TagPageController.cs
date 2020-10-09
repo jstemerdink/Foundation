@@ -2,35 +2,28 @@
 using EPiServer.Find;
 using EPiServer.Find.Cms;
 using EPiServer.Find.Framework;
+using EPiServer.Tracking.PageView;
 using EPiServer.Web.Mvc;
 using EPiServer.Web.Routing;
-using Foundation.Cms.Media;
-using Foundation.Cms.Personalization;
-using Foundation.Find.Cms.Locations.ViewModels;
-using Foundation.Find.Cms.Models.Blocks;
+using Foundation.Features.Media;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading.Tasks;
 using System.Web.Mvc;
 
 namespace Foundation.Features.Locations.TagPage
 {
-    public class TagPageController : PageController<Cms.Pages.TagPage>
+    public class TagPageController : PageController<TagPage>
     {
         private readonly IContentLoader _contentLoader;
-        private readonly ICmsTrackingService _trackingService;
 
-        public TagPageController(IContentLoader contentLoader,
-            ICmsTrackingService trackingService)
+        public TagPageController(IContentLoader contentLoader)
         {
             _contentLoader = contentLoader;
-            _trackingService = trackingService;
         }
 
-        public async Task<ActionResult> Index(Cms.Pages.TagPage currentPage)
+        [PageViewTracking]
+        public ActionResult Index(TagPage currentPage)
         {
-            await _trackingService.PageViewed(HttpContext, currentPage);
-
             var model = new TagsViewModel(currentPage)
             {
                 Continent = ControllerContext.RequestContext.GetCustomRouteData<string>("Continent")
@@ -42,7 +35,7 @@ namespace Foundation.Features.Locations.TagPage
                 model.AdditionalCategories = addcat.Split(',');
             }
 
-            var query = SearchClient.Instance.Search<Find.Cms.Models.Pages.LocationItemPage>()
+            var query = SearchClient.Instance.Search<LocationItemPage.LocationItemPage>()
                 .Filter(f => f.TagString().Match(currentPage.Name));
             if (model.AdditionalCategories != null)
             {
@@ -61,20 +54,26 @@ namespace Foundation.Features.Locations.TagPage
             };
             foreach (var location in model.Locations)
             {
-                carousel.Items.Add(new TagsCarouselItem
+                if (location.Image != null)
                 {
-                    Image = location.Image,
-                    Heading = location.Name,
-                    Description = location.MainIntro,
-                    ItemURL = location.ContentLink
-                });
+                    carousel.Items.Add(new TagsCarouselItem
+                    {
+                        Image = location.Image,
+                        Heading = location.Name,
+                        Description = location.MainIntro,
+                        ItemURL = location.ContentLink
+                    });
+                }
             }
             if (carousel.Items.All(item => item.Image == null) || currentPage.Images != null)
             {
-                foreach (var image in currentPage.Images.FilteredItems.Select(ci => ci.ContentLink))
+                if (currentPage.Images != null && currentPage.Images.FilteredItems != null)
                 {
-                    var title = _contentLoader.Get<ImageMediaData>(image).Title;
-                    carousel.Items.Add(new TagsCarouselItem { Image = image, Heading = title });
+                    foreach (var image in currentPage.Images.FilteredItems.Select(ci => ci.ContentLink))
+                    {
+                        var title = _contentLoader.Get<ImageMediaData>(image).Title;
+                        carousel.Items.Add(new TagsCarouselItem { Image = image, Heading = title });
+                    }
                 }
             }
             model.Carousel = carousel;

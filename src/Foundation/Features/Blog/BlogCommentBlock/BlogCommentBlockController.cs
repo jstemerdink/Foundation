@@ -2,11 +2,10 @@
 using EPiServer.Framework.DataAnnotations;
 using EPiServer.Web.Mvc;
 using EPiServer.Web.Routing;
-using Foundation.Cms.ViewModels.Blocks;
+using Foundation.Cms;
 using Foundation.Social.Models.Comments;
 using Foundation.Social.Repositories.Comments;
 using Foundation.Social.Repositories.Common;
-using Foundation.Social.ViewModels;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -19,7 +18,7 @@ namespace Foundation.Features.Blog.BlogCommentBlock
     /// as the posting of new comments.
     /// </summary>
     [TemplateDescriptor(Default = true)]
-    public class BlogCommentBlockController : BlockController<Cms.Blocks.BlogCommentBlock>
+    public class BlogCommentBlockController : BlockController<BlogCommentBlock>
     {
         private readonly IBlogCommentRepository _commentRepository;
         private readonly IPageRepository _pageRepository;
@@ -48,11 +47,10 @@ namespace Foundation.Features.Blog.BlogCommentBlock
         /// </summary>
         /// <param name="currentBlock">The current frontend block instance.</param>
         /// <returns>The action's result.</returns>
-        public override ActionResult Index(Cms.Blocks.BlogCommentBlock currentBlock)
+        public override ActionResult Index(BlogCommentBlock currentBlock)
         {
-
             var pagingInfo = new PagingInfo(_pageRouteHelper.PageLink.ID, currentBlock.CommentsPerPage == 0 ? RecordPerPage : currentBlock.CommentsPerPage, 1);
-            return GetComment(pagingInfo);
+            return GetComment(pagingInfo, currentBlock);
         }
 
         /// <summary>
@@ -62,7 +60,7 @@ namespace Foundation.Features.Blog.BlogCommentBlock
         /// <param name="pageIndex">Current page index of comments</param>
         /// <param name="recordPerPage">Records of comments per page</param>
         /// <returns>The action's result.</returns>
-        public ActionResult GetComment(PagingInfo pagingInfo)
+        public ActionResult GetComment(PagingInfo pagingInfo, BlogCommentBlock currentBlock)
         {
             var pageId = pagingInfo.PageId;
             var pageIndex = pagingInfo.PageNumber;
@@ -72,7 +70,7 @@ namespace Foundation.Features.Blog.BlogCommentBlock
             var pageContentGuid = _pageRepository.GetPageId(pageReference);
 
             // Create a comments block view model to fill the frontend block view
-            var blockViewModel = new BlogCommentsBlockViewModel(pageReference);
+            var blockViewModel = new BlogCommentsBlockViewModel(pageReference, currentBlock);
 
             // Try to get recent comments
             try

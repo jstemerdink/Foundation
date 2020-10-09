@@ -1,5 +1,6 @@
 # Contribution Guide
-Contributions are greatly appreciated via forks. Episerver retains control of the direction of the project and reserves the right to close issues and PR:s that don’t align with the project roadmap.
+Before
+contributing, please read the [code of conduct](https://github.com/episerver/Foundation/blob/develop/docs/code-of-conduct.md).  Contributions are greatly appreciated via forks. Episerver retains control of the direction of the project and reserves the right to close issues and PR:s that don’t align with the project roadmap.
 
 
 * First, if you found a bug yourself you need to report it and let it as an issue in Github.
@@ -54,13 +55,13 @@ Acts as integration branch for feature and bugfix branches that should go into t
 
 ### Feature branches
 
-Created from develop and should be named feature/<issue id in github>-<short description>. For example to work on "User Story 35: Remove the 'Classic' link stage in the API and only use permanent links" you would create a branch from develop named "feature/35-remove-classic-links". Note that the <short description> is all lower-case with hyphens.
+Created from develop and should be named feature/`<issue id in github>-<short description>`. For example to work on "User Story 35: Remove the 'Classic' link stage in the API and only use permanent links" you would create a branch from develop named "feature/35-remove-classic-links". Note that the `<short description>` is all lower-case with hyphens.
 
 Merge to the develop branch by creating a pull request.
 
 ### Bugfix branches
 
-Created from develop and should be named bugfix/<issue id in github>-<short description>. For example to work on "Bug 111571: MVC rendering of built-in properties" you should create a branch named something like "bugfix/111571-mvc-rendering-properties". Note that the <short description> is all lower-case with hyphens.
+Created from develop and should be named bugfix/`<issue id in github>-<short description>`. For example to work on "Bug 111571: MVC rendering of built-in properties" you should create a branch named something like "bugfix/111571-mvc-rendering-properties". Note that the `<short description>` is all lower-case with hyphens.
 
 Merge to the develop branch by creating a pull request.
 

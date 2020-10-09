@@ -2,11 +2,11 @@
 using EPiServer.Commerce.Catalog;
 using EPiServer.Commerce.Catalog.ContentTypes;
 using EPiServer.Commerce.Order;
+using EPiServer.Commerce.Reporting.Order.ReportingModels;
 using EPiServer.Core;
 using EPiServer.ServiceLocation;
 using EPiServer.SpecializedProperties;
 using EPiServer.Web;
-using Foundation.Commerce.Models.Catalog;
 using Mediachase.Commerce.Catalog;
 using System;
 using System.Web;
@@ -59,17 +59,13 @@ namespace Foundation.Commerce.Extensions
 
         public static EntryContentBase GetEntryContentBase(this ILineItem lineItem) => GetEntryContent<EntryContentBase>(lineItem.Code);
 
-        public static T GetEntryContent<T>(this ILineItem lineItem) where T : EntryContentBase => GetEntryContent<T>(lineItem.Code);
+        public static EntryContentBase GetEntryContentBase(this LineItemReportingModel lineItem) => GetEntryContent<EntryContentBase>(lineItem.LineItemCode);
 
-        public static bool IsVirtualVariant(this ILineItem lineItem)
-        {
-            var entry = lineItem.GetEntryContent<EntryContentBase>() as GenericVariant;
-            return entry != null && entry.VirtualProductMode != null && !string.IsNullOrWhiteSpace(entry.VirtualProductMode) && !entry.VirtualProductMode.Equals("None");
-        }
+        public static T GetEntryContent<T>(this ILineItem lineItem) where T : EntryContentBase => GetEntryContent<T>(lineItem.Code);
 
         public static ContentReference GetContentReference(this LinkItem linkItem)
         {
-            var guid = PermanentLinkUtility.GetGuid(new UrlBuilder(linkItem.GetMappedHref()), out var extension);
+            var guid = PermanentLinkUtility.GetGuid(new UrlBuilder(linkItem.GetMappedHref()), out _);
             return PermanentLinkUtility.FindContentReference(guid);
         }
     }

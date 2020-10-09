@@ -1,103 +1,52 @@
 ﻿@using System.Web.Mvc.Html
-@using Foundation.Cms.EditorDescriptors
+@using Foundation.Features.Blog.BlogListPage
+@using Foundation.Features.Shared.SelectionFactories
+
 @model BlogListPageViewModel
 
-@if (string.IsNullOrEmpty(Model.CurrentContent.Template) || Model.CurrentContent.Template == TemplateSelections.Grid)
+@if (string.IsNullOrEmpty(Model.CurrentContent.Template))
 {
-    @Html.Partial("_GridTemplate", Model)
+    Model.CurrentContent.Template = TemplateSelections.Grid;
 }
-
-@if (Model.CurrentContent.Template == TemplateSelections.ImageLeft)
+ 
+@switch(Model.CurrentContent.Template)
 {
-    if (Model.Blogs != null && Model.Blogs.Any())
-    {
-        foreach (var blog in Model.Blogs)
+    case TemplateSelections.Grid:
+        @Html.Partial("_GridTemplate", Model)
+        break;
+
+    case TemplateSelections.Card:
+        @Html.Partial("_CardTemplate", Model)
+        break;
+
+    case TemplateSelections.Insight:
+        @Html.Partial("_InsightTemplate", Model)
+        break;
+
+    case TemplateSelections.ImageLeft:
+        @Html.Partial("_ImageLeftTemplate", Model)
+        break;
+
+    case TemplateSelections.ImageTop:
+        @Html.Partial("_ImageTopTemplate", Model)
+        break;
+
+    case TemplateSelections.NoImage:
+        @Html.Partial("_NoImageTemplate", Model)
+        break;
+
+    case TemplateSelections.Highlight:
+        if (Model.Blogs != null && Model.Blogs.Any())
         {
-            @Html.Action("Preview", new { currentPage = blog, blogModel = Model })
-        }
-    }
-}
-
-@if (Model.CurrentContent.Template == TemplateSelections.ImageTop)
-{
-    if (Model.Blogs != null && Model.Blogs.Any())
-    {
-        <div class="row">
-            @foreach (var blog in Model.Blogs)
+            var flip = false;
+            foreach (var blog in Model.Blogs)
             {
-                @Html.Action("Preview", new { currentPage = blog, blogModel = Model })
-            }
-        </div>
-    }
-}
-
-
-
-<br />
-@using (Html.BeginForm("BlogListBlock", "Test", FormMethod.Get, new { id = "jsGetBlogItemListPage" }))
-{
-    <input hidden id="RequestUrl" type="text" value="/BlogListPage/GetItemList" />
-    <input hidden id="PageId" name="PageId" type="text" value="@Model.PagingInfo.PageId" />
-    <input hidden id="PageNumber" name="PageNumber" type="text" value="@Model.PagingInfo.PageNumber" />
-    <input hidden id="PageSize" name="PageSize" type="text" value="@Model.PagingInfo.PageSize" />
-}
-
-<div class="col-12 toolbar">
-    <div class="toolbar__left">
-        <strong>
-            @Model.PagingInfo.TotalRecord @Html.TranslateFallback("/Blog/Items", "Items")
-        </strong>
-    </div>
-
-    <div class="toolbar__center">
-        @if (Model.PagingInfo.PageCount > 1)
-        {
-            <label>@Html.TranslateFallback("/Search/Page", "Page"):</label>
-            <ul class="pagination">
-                <li class="jsPaginateBlog " data="1">
-                    <a href="javascript:void(0)">
-                        &laquo;
-                    </a>
-                </li>
-                @for (int page = 1; page <= Model.PagingInfo.PageCount; page++)
+                @Html.Partial("_HighLightTemplate", blog, new ViewDataDictionary { { "Flip", flip } })
+                if (!blog.CurrentContent.Highlight)
                 {
-                    <li class="@(Model.PagingInfo.PageNumber == page ? "active" : "") jsPaginateBlog " data="@page">
-                        <a href="javascript:void(0)">
-                            @page.ToString()
-                        </a>
-                    </li>
+                    flip = !flip;
                 }
-                <li class="jsPaginateBlog " data="@Model.PagingInfo.Pages.Last()">
-                    <a href="javascript:void(0)">
-                        &raquo;
-                    </a>
-                </li>
-            </ul>
+            }
         }
-    </div>
-    <div class="toolbar__right">
-        <div id="limiter">
-            <label>@Html.TranslateFallback("/Search/View", "View"): </label>
-            <ul class="selection">
-                <li>
-                    <a href="#">
-                        @Model.PagingInfo.PageSize
-                        <i style="font-size: 5px;" data-feather="chevron-down"></i>
-                    </a>
-                    <ul class="selection__dropdown">
-                        <li>
-                            <a class="jsPageSizeBlog " href="javascript:void(0)" data="@(Model.PagingInfo.PageSize == 15 ? 20 : 15)">@(Model.PagingInfo.PageSize == 15 ? 20 : 15)</a>
-                        </li>
-                        <li>
-                            <a class="jsPageSizeBlog " href="javascript:void(0)" data="@(Model.PagingInfo.PageSize == 30 || Model.PagingInfo.PageSize == 35 ? 20 : 30)">@(Model.PagingInfo.PageSize == 30 || Model.PagingInfo.PageSize == 35 ? 20 : 30)</a>
-                        </li>
-                        <li>
-                            <a class="jsPageSizeBlog " href="javascript:void(0)" data="@(Model.PagingInfo.PageSize == 35 ? 30 : 35)">@(Model.PagingInfo.PageSize == 35 ? 30 : 35)</a>
-                        </li>
-                    </ul>
-                </li>
-            </ul>
-        </div>
-    </div>
-</div>
-
+        break;
+}

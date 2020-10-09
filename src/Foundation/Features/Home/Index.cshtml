@@ -1,6 +1,8 @@
-﻿@model ContentViewModel<Foundation.Demo.Models.DemoHomePage>
+﻿@using Foundation.Features.Home
 
-<div class="home-page row">
+@model ContentViewModel<HomePage>
+
+<div class="home-page row no-gutters">
     <div class="col-12">
         @Html.PropertyFor(x => x.CurrentContent.TopContentArea)
     </div>

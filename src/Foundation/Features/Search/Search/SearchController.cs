@@ -1,17 +1,14 @@
 ﻿using EPiServer;
 using EPiServer.Core;
+using EPiServer.Tracking.PageView;
 using EPiServer.Web.Mvc;
 using EPiServer.Web.Mvc.Html;
-using Foundation.Cms.Pages;
-using Foundation.Cms.Personalization;
-using Foundation.Commerce.Catalog.ViewModels;
-using Foundation.Commerce.Personalization;
-using Foundation.Demo.Models;
-using Foundation.Demo.ViewModels;
-using Foundation.Find.Cms;
-using Foundation.Find.Cms.ViewModels;
-using Foundation.Find.Commerce;
-using Foundation.Find.Commerce.ViewModels;
+using Foundation.Cms.Settings;
+using Foundation.Features.CatalogContent;
+using Foundation.Features.Home;
+using Foundation.Features.Search.Search;
+using Foundation.Features.Settings;
+using Foundation.Personalization;
 using Mediachase.Commerce.Catalog;
 using System.Collections.Generic;
 using System.Linq;
@@ -24,57 +21,62 @@ namespace Foundation.Features.Search
     public class SearchController : PageController<SearchResultPage>
     {
         private readonly ISearchViewModelFactory _viewModelFactory;
-        private readonly ICommerceSearchService _commerceSearchService;
-        private readonly ICmsSearchService _cmsSearchService;
+        private readonly ISearchService _searchService;
         private readonly ICommerceTrackingService _recommendationService;
         private readonly ReferenceConverter _referenceConverter;
         private readonly ICmsTrackingService _cmsTrackingService;
         private readonly HttpContextBase _httpContextBase;
         private readonly IContentLoader _contentLoader;
+        private readonly ISettingsService _settingsService;
 
         public SearchController(
             ISearchViewModelFactory viewModelFactory,
-            ICommerceSearchService searchService,
+            ISearchService searchService,
             ICommerceTrackingService recommendationService,
             ReferenceConverter referenceConverter,
             HttpContextBase httpContextBase,
             IContentLoader contentLoader,
             ICmsTrackingService cmsTrackingService,
-            ICmsSearchService cmsSearchService)
+            ISettingsService settingsService)
         {
             _viewModelFactory = viewModelFactory;
-            _commerceSearchService = searchService;
+            _searchService = searchService;
             _recommendationService = recommendationService;
             _referenceConverter = referenceConverter;
             _cmsTrackingService = cmsTrackingService;
             _httpContextBase = httpContextBase;
             _contentLoader = contentLoader;
-            _cmsSearchService = cmsSearchService;
+            _settingsService = settingsService;
         }
 
         [ValidateInput(false)]
         [AcceptVerbs(HttpVerbs.Get | HttpVerbs.Post)]
-        public async Task<ActionResult> Index(SearchResultPage currentPage, CommerceFilterOptionViewModel filterOptions)
+        [PageViewTracking]
+        public async Task<ActionResult> Index(SearchResultPage currentPage, FilterOptionViewModel filterOptions)
         {
             if (filterOptions == null)
             {
                 return Redirect(Url.ContentUrl(ContentReference.StartPage));
             }
 
-            var startPage = _contentLoader.Get<DemoHomePage>(ContentReference.StartPage);
-            var viewModel = _viewModelFactory.Create<DemoSearchViewModel<SearchResultPage>, SearchResultPage>(currentPage, new CommerceArgs
+            if (string.IsNullOrEmpty(filterOptions.ViewSwitcher))
             {
-                FilterOption = filterOptions,
-                SelectedFacets = HttpContext.Request.QueryString["facets"],
-                CatalogId = startPage.SearchCatalog,
-            });
+                filterOptions.ViewSwitcher = "Grid";
+            }
+
+            var searchSettings = _settingsService.GetSiteSettings<SearchSettings>();
+            var startPage = _contentLoader.Get<HomePage>(ContentReference.StartPage);
+            var viewModel = _viewModelFactory.Create(currentPage,
+                HttpContext.Request.QueryString["facets"],
+                searchSettings?.SearchCatalog ?? 0,
+                filterOptions);
 
             if (viewModel == null)
             {
                 return View(viewModel);
             }
 
-            if (!startPage.ShowProductSearchResults)
+            if (!searchSettings?.ShowProductSearchResults ?? false)
             {
                 viewModel.ProductViewModels = new List<ProductTileViewModel>();
             }
@@ -94,36 +96,55 @@ namespace Foundation.Features.Search
             }
 
             await _cmsTrackingService.SearchedKeyword(_httpContextBase, filterOptions.Q);
-            if (startPage.ShowContentSearchResults)
+            if (searchSettings?.ShowContentSearchResults ?? true)
             {
-                viewModel.ContentSearchResult = _cmsSearchService.SearchContent(new CmsFilterOptionViewModel()
+                viewModel.ContentSearchResult = _searchService.SearchContent(new FilterOptionViewModel()
                 {
                     Q = filterOptions.Q,
                     PageSize = 5,
                     Page = filterOptions.SearchContent ? filterOptions.Page : 1,
+                    SectionFilter = filterOptions.SectionFilter,
+                    IncludeImagesContent = searchSettings?.IncludeImagesInContentsSearchResults ?? true
+                });
+            }
+
+            if (searchSettings?.ShowPdfSearchResults ?? true)
+            {
+                viewModel.PdfSearchResult = _searchService.SearchPdf(new FilterOptionViewModel()
+                {
+                    Q = filterOptions.Q,
+                    PageSize = 5,
+                    Page = filterOptions.SearchPdf ? filterOptions.Page : 1,
                     SectionFilter = filterOptions.SectionFilter
                 });
             }
 
             var productCount = viewModel.ProductViewModels?.Count() ?? 0;
-            var contentCount = viewModel.ContentSearchResult.Hits?.Count() ?? 0;
+            var contentCount = viewModel.ContentSearchResult?.Hits?.Count() ?? 0;
+            var pdfCount = viewModel.PdfSearchResult?.Hits?.Count() ?? 0;
 
-            if (productCount + contentCount == 1)
+            if (productCount + contentCount + pdfCount == 1)
             {
                 if (productCount == 1)
                 {
                     var product = viewModel.ProductViewModels.FirstOrDefault();
                     return Redirect(product.Url);
                 }
-                else
+                if (contentCount == 1)
                 {
                     var content = viewModel.ContentSearchResult.Hits.FirstOrDefault();
                     return Redirect(content.Url);
                 }
+                if (pdfCount == 1)
+                {
+                    var content = viewModel.PdfSearchResult.Hits.FirstOrDefault();
+                    return Redirect(content.Url);
+                }
             }
 
-            viewModel.ShowContentSearchResults = startPage.ShowContentSearchResults;
-            viewModel.ShowProductSearchResults = startPage.ShowProductSearchResults;
+            viewModel.ShowProductSearchResults = searchSettings?.ShowProductSearchResults ?? true;
+            viewModel.ShowContentSearchResults = searchSettings?.ShowContentSearchResults ?? true;
+            viewModel.ShowPdfSearchResults = searchSettings?.ShowPdfSearchResults ?? true;
 
             return View(viewModel);
         }
@@ -133,15 +154,16 @@ namespace Foundation.Features.Search
         public ActionResult QuickSearch(string search = "")
         {
             var redirectUrl = "";
-            var startPage = _contentLoader.Get<DemoHomePage>(ContentReference.StartPage);
+            var startPage = _contentLoader.Get<HomePage>(ContentReference.StartPage);
             var productCount = 0;
             var contentCount = 0;
+            var pdfCount = 0;
 
-            var model = new DemoSearchViewModel<SearchResultPage>();
-
-            if (startPage.ShowProductSearchResults)
+            var model = new SearchViewModel<SearchResultPage>();
+            var searchSettings = _settingsService.GetSiteSettings<SearchSettings>();
+            if (searchSettings?.ShowProductSearchResults ?? true)
             {
-                var productResults = _commerceSearchService.QuickSearch(search, startPage.SearchCatalog);
+                var productResults = _searchService.QuickSearch(search, searchSettings?.SearchCatalog ?? 0);
                 model.ProductViewModels = productResults;
                 productCount = productResults?.Count() ?? 0;
 
@@ -159,38 +181,60 @@ namespace Foundation.Features.Search
                 }
             }
 
-            if (startPage.ShowContentSearchResults)
+            if (searchSettings?.ShowContentSearchResults ?? true)
             {
-                var contentResult = _cmsSearchService.SearchContent(new CmsFilterOptionViewModel()
+                var contentResult = _searchService.SearchContent(new FilterOptionViewModel()
                 {
                     Q = search,
                     PageSize = 5,
                     Page = 1,
+                    IncludeImagesContent = searchSettings?.IncludeImagesInContentsSearchResults ?? true
                 });
                 model.ContentSearchResult = contentResult;
                 contentCount = contentResult?.Hits.Count() ?? 0;
             }
 
-            if (productCount + contentCount == 1)
+            if (searchSettings?.ShowPdfSearchResults ?? true)
+            {
+                var pdfResult = _searchService.SearchPdf(new FilterOptionViewModel()
+                {
+                    Q = search,
+                    PageSize = 5,
+                    Page = 1
+                });
+                model.PdfSearchResult = pdfResult;
+                pdfCount = pdfResult?.Hits.Count() ?? 0;
+            }
+
+            if (productCount + contentCount + pdfCount == 1)
             {
                 if (productCount == 1)
                 {
-                    model.RedirectUrl = redirectUrl;
+                    var product = model.ProductViewModels.FirstOrDefault();
+                    redirectUrl = product.Url;
                 }
-                else
+                if (contentCount == 1)
                 {
-                    model.RedirectUrl = redirectUrl;
+                    var content = model.ContentSearchResult.Hits.FirstOrDefault();
+                    redirectUrl = content.Url;
+                }
+                if (pdfCount == 1)
+                {
+                    var pdf = model.PdfSearchResult.Hits.FirstOrDefault();
+                    redirectUrl = pdf.Url;
                 }
             }
+            model.RedirectUrl = redirectUrl;
 
-            model.ShowContentSearchResults = startPage.ShowContentSearchResults;
-            model.ShowProductSearchResults = startPage.ShowProductSearchResults;
+            model.ShowProductSearchResults = searchSettings?.ShowProductSearchResults ?? true;
+            model.ShowContentSearchResults = searchSettings?.ShowContentSearchResults ?? true;
+            model.ShowPdfSearchResults = searchSettings?.ShowPdfSearchResults ?? true;
 
             return View("_QuickSearchAll", model);
         }
 
         [ChildActionOnly]
-        public ActionResult Facet(SearchResultPage currentPage, CommerceFilterOptionViewModel viewModel) => PartialView("_Facet", viewModel);
+        public ActionResult Facet(SearchResultPage currentPage, FilterOptionViewModel viewModel) => PartialView("_Facet", viewModel);
 
 
         public class AssetPreloadLink

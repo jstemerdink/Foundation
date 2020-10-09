@@ -1,5 +1,5 @@
 ﻿using EPiServer.Commerce.Marketing;
-using Foundation.Cms.ViewModels;
+using Foundation.Cms;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
@@ -31,6 +31,5 @@ namespace Foundation.Commerce.Marketing
         [Display(Name = "Max Redemptions")]
         public int MaxRedemptions { get; set; }
         public int PromotionId { get; set; }
-
     }
 }

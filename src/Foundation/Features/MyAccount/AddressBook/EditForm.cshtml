@@ -1,9 +1,7 @@
-﻿@model Foundation.Commerce.Customer.ViewModels.AddressViewModel
+﻿@using Foundation.Features.MyAccount.AddressBook
 
-<div class="container">
-    <div class="row myPage">
-       
-        @Html.Partial("EditAddress", Model)
+@model AddressViewModel
 
-    </div>
+<div class="row myPage">
+    @Html.Partial("EditAddress", Model)
 </div>

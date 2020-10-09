@@ -1,4 +1,7 @@
-﻿@model LargeCartViewModel
+﻿@using Foundation.Features.Header
+
+@model LargeCartViewModel
+
 @{
     if (Request.IsAjaxRequest())
     {
@@ -11,6 +14,20 @@
         <div class="page-title">
             <h1 class="heading-title">@Html.PropertyFor(x => x.CurrentContent.Name)</h1>
         </div>
+        @if (ViewBag.QuoteMessage != null && !string.IsNullOrEmpty(ViewBag.QuoteMessage))
+        {
+            <div class="alert alert-success">
+                @ViewBag.QuoteMessage
+            </div>
+        }
+
+        @if (ViewBag.ErrorMessage != null && !string.IsNullOrEmpty(ViewBag.ErrorMessage))
+        {
+            <div class="alert alert-danger">
+                @ViewBag.ErrorMessage
+            </div>
+        }
+
         @if (!string.IsNullOrEmpty(Model.Message))
         {
             <div class="alert alert-warning">
@@ -24,31 +41,15 @@
             <div id="cartItemsId">
                 @Html.Partial("_CartItems", Model)
             </div>
-
         }
         else
         {
             <p>The cart is empty.</p>
         }
-
     </div>
-
 </div>
 
-
-
-@if (Model.ShowRecommendations)
-{
-    <div class="row">
-        <div class="col-12">
-            <div class="new_title center">
-                <h2>@Html.TranslateFallback("/Shared/RecommendationsForYou", "Recommendations For You")</h2>
-            </div>
-            @*@{ Html.RenderAction("Index", "Recommendations", new { recommendations = Model.Recommendations });}*@
-        </div>
-
-    </div>
-}
+@Html.PropertyFor(x => x.CurrentContent.BottomContentArea)
 
 @if (Model.Shipments.Count() > 0)
 {

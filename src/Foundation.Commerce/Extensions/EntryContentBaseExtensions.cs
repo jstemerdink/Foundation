@@ -1,5 +1,4 @@
 ﻿using EPiServer;
-using EPiServer.Commerce.Catalog;
 using EPiServer.Commerce.Catalog.ContentTypes;
 using EPiServer.Commerce.Catalog.Linking;
 using EPiServer.Commerce.SpecializedProperties;
@@ -7,9 +6,6 @@ using EPiServer.Core;
 using EPiServer.ServiceLocation;
 using EPiServer.Web.Routing;
 using Foundation.Cms;
-using Foundation.Commerce.Catalog;
-using Foundation.Commerce.Catalog.ViewModels;
-using Foundation.Commerce.Models.Catalog;
 using Mediachase.Commerce;
 using Mediachase.Commerce.Catalog;
 using Mediachase.Commerce.InventoryService;
@@ -18,8 +14,6 @@ using Mediachase.Commerce.Pricing;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Text.RegularExpressions;
 
 namespace Foundation.Commerce.Extensions
 {
@@ -36,9 +30,6 @@ namespace Foundation.Commerce.Extensions
 
         private static readonly Lazy<IPriceService> PriceService =
             new Lazy<IPriceService>(() => ServiceLocator.Current.GetInstance<IPriceService>());
-
-        private static readonly Lazy<AssetUrlResolver> AssetUrlResolver =
-            new Lazy<AssetUrlResolver>(() => ServiceLocator.Current.GetInstance<AssetUrlResolver>());
 
         private static readonly Lazy<UrlResolver> UrlResolver =
             new Lazy<UrlResolver>(() => ServiceLocator.Current.GetInstance<UrlResolver>());
@@ -57,9 +48,6 @@ namespace Foundation.Commerce.Extensions
 
         private static readonly Lazy<IContentLoader> ContentLoader =
             new Lazy<IContentLoader>(() => ServiceLocator.Current.GetInstance<IContentLoader>());
-
-        private static readonly Lazy<PromotionService> PromotionService =
-            new Lazy<PromotionService>(() => ServiceLocator.Current.GetInstance<PromotionService>());
 
         public static IEnumerable<Inventory> Inventories(this EntryContentBase entryContentBase)
         {
@@ -91,7 +79,7 @@ namespace Foundation.Commerce.Extensions
                 return 0m;
             }
 
-            var maxPrice = new Price();
+            var minPrice = new Price();
             if (entryContentBase is ProductContent productContent)
             {
                 var variationLinks = productContent.GetVariants(RelationRepository.Value);
@@ -99,13 +87,14 @@ namespace Foundation.Commerce.Extensions
                 {
                     var defaultPrice =
                         variationLink.GetDefaultPrice(market.MarketId, market.DefaultCurrency, DateTime.UtcNow);
-                    if (defaultPrice.UnitPrice.Amount > maxPrice.UnitPrice.Amount)
+
+                    if ((defaultPrice.UnitPrice.Amount < minPrice.UnitPrice.Amount && defaultPrice.UnitPrice.Amount > 0) || minPrice.UnitPrice.Amount == 0)
                     {
-                        maxPrice = defaultPrice;
+                        minPrice = defaultPrice;
                     }
                 }
 
-                return maxPrice.UnitPrice.Amount;
+                return minPrice.UnitPrice.Amount;
             }
 
             if (entryContentBase is PackageContent packageContent)
@@ -182,23 +171,6 @@ namespace Foundation.Commerce.Extensions
 
         public static CatalogKey GetCatalogKey(this ContentReference contentReference) => new CatalogKey(ReferenceConverter.Value.GetCode(contentReference));
 
-        private static string ShortenLongDescription(string longDescription)
-        {
-            var wordColl = Regex.Matches(longDescription, @"[\S]+");
-            var sb = new StringBuilder();
-
-            if (wordColl.Count > 40)
-            {
-                foreach (var subWord in wordColl.Cast<Match>().Select(r => r.Value).Take(40))
-                {
-                    sb.Append(subWord);
-                    sb.Append(" ");
-                }
-            }
-
-            return sb.Length > 0 ? sb.Append("...").ToString() : "";
-        }
-
         public static ItemCollection<Inventory> GetStockPlacements(this ContentReference contentLink)
         {
             var code = GetCode(contentLink.ToReferenceWithoutVersion());
@@ -211,21 +183,19 @@ namespace Foundation.Commerce.Extensions
                       }));
         }
 
-        public static Price GetDefaultPrice(this ContentReference contentLink, MarketId marketId, Currency currency,
-            DateTime validOn)
+        public static Price GetDefaultPrice(this ContentReference contentLink, MarketId marketId, Currency currency, DateTime validOn)
         {
-            var entry = ContentLoader.Value.Get<EntryContentBase>(contentLink.ToReferenceWithoutVersion());
-            var catalogKey = GetCatalogKey(entry);
+            var catalogKey = new CatalogKey(ReferenceConverter.Value.GetCode(contentLink));
 
-            var priceValue = PriceService.Value.GetDefaultPrice(marketId, validOn, catalogKey, currency);
-            return priceValue != null ? new Price(priceValue, entry) : new Price();
+            var priceValue = PriceService.Value.GetPrices(marketId, validOn, catalogKey, new PriceFilter() { Currencies = new[] { currency } })
+                .OrderBy(x => x.UnitPrice).FirstOrDefault();
+            return priceValue == null ? new Price() : new Price(priceValue);
         }
 
-        public static ItemCollection<Price> GetPrices(this ContentReference entryContents,
+        public static IEnumerable<Price> GetPrices(this ContentReference entryContents,
             MarketId marketId, PriceFilter priceFilter) => new[] { entryContents }.GetPrices(marketId, priceFilter);
 
-        public static ItemCollection<Price> GetPrices(this IEnumerable<ContentReference> entryContents,
-            MarketId marketId, PriceFilter priceFilter)
+        public static IEnumerable<Price> GetPrices(this IEnumerable<ContentReference> entryContents, MarketId marketId, PriceFilter priceFilter)
         {
             var customerPricingList = priceFilter.CustomerPricing != null
                 ? priceFilter.CustomerPricing.Where(x => x != null).ToList()
@@ -250,18 +220,17 @@ namespace Foundation.Commerce.Extensions
                 }
 
                 priceCollection = PriceService.Value.GetPrices(marketId, DateTime.UtcNow, catalogKeys, priceFilter);
+
+                // if the entry has no price without sale code
+                if (!priceCollection.Any())
+                {
+                    priceCollection = PriceService.Value.GetCatalogEntryPrices(catalogKeys)
+                       .Where(x => x.ValidFrom <= DateTime.Now && (!x.ValidUntil.HasValue || x.ValidUntil.Value >= DateTime.Now))
+                       .Where(x => x.MarketId == marketId);
+                }
             }
 
-            var result = new ItemCollection<Price>();
-            foreach (var priceValue in priceCollection)
-            {
-                var entryLink = entryContentsList.FirstOrDefault(c =>
-                    GetCode(c).Equals(priceValue.CatalogKey.CatalogEntryCode, StringComparison.OrdinalIgnoreCase));
-                var entryContent = ContentLoader.Value.Get<EntryContentBase>(entryLink);
-                result.Add(new Price(priceValue, entryContent));
-            }
-
-            return result;
+            return priceCollection.Select(x => new Price(x));
         }
 
         public static string GetCode(this ContentReference contentLink) => ReferenceConverter.Value.GetCode(contentLink);
@@ -306,6 +275,7 @@ namespace Foundation.Commerce.Extensions
                     {
                         return new List<T> { entryContent as T };
                     }
+
                     break;
             }
 
@@ -318,6 +288,7 @@ namespace Foundation.Commerce.Extensions
             {
                 return "";
             }
+
             var outline = nodeCode;
             var currentNode = ContentLoader.Value.Get<NodeContent>(ReferenceConverter.Value.GetContentLink(nodeCode));
             var parent = ContentLoader.Value.Get<CatalogContentBase>(currentNode.ParentLink);
@@ -335,74 +306,13 @@ namespace Foundation.Commerce.Extensions
 
                 parent = ContentLoader.Value.Get<CatalogContentBase>(parent.ParentLink);
             }
+
             return outline;
-        }
-
-        public static ProductTileViewModel GetProductTileViewModel(this EntryContentBase entry, IMarket market, Currency currency)
-        {
-            var placedPrice = entry.Prices()
-                .Where(id => id.MarketId == market.MarketId)
-                .OrderBy(sort => sort.UnitPrice.Amount)
-                .FirstOrDefault(x => x.UnitPrice.Currency == currency);
-            var entryRecommendations = entry as IProductRecommendations;
-            var product = entry;
-            var entryUrl = "";
-            var firstCode = placedPrice != null && placedPrice.EntryContent is VariationContent ? (placedPrice.EntryContent as VariationContent).Code : "";
-            var type = typeof(GenericProduct);
-
-            if (entry is GenericProduct)
-            {
-                entryUrl = UrlResolver.Value.GetUrl(product.ContentLink);
-            }
-
-            if (entry is GenericBundle)
-            {
-                type = typeof(GenericBundle);
-                firstCode = product.Code;
-                entryUrl = UrlResolver.Value.GetUrl(product.ContentLink);
-            }
-
-            if (entry is GenericPackage)
-            {
-                type = typeof(GenericPackage);
-                firstCode = product.Code;
-                entryUrl = UrlResolver.Value.GetUrl(product.ContentLink);
-            }
-
-            if (entry is GenericVariant)
-            {
-                var variantEntry = entry as GenericVariant;
-                type = typeof(GenericVariant);
-                product = ContentLoader.Value.Get<EntryContentBase>(entry.GetParentProducts().FirstOrDefault()) as GenericProduct;
-                entryUrl = UrlResolver.Value.GetUrl(product.ContentLink) + "?variationCode=" + variantEntry.Code;
-            }
-
-            return new ProductTileViewModel
-            {
-                ProductId = product.ContentLink.ID,
-                Brand = entry.Property.Keys.Contains("Brand") ? entry.Property["Brand"]?.Value?.ToString() ?? "" : "",
-                Code = product.Code,
-                DisplayName = entry.DisplayName,
-                Description = entry.Property.Keys.Contains("Description") ? entry.Property["Description"]?.Value != null ? ((XhtmlString)entry.Property["Description"].Value).ToHtmlString() : "" : "",
-                LongDescription = ShortenLongDescription(entry.Property.Keys.Contains("LongDescription") ? entry.Property["LongDescription"]?.Value != null ? ((XhtmlString)entry.Property["LongDescription"].Value).ToHtmlString() : "" : ""),
-                PlacedPrice = placedPrice?.UnitPrice ?? new Money(0, currency),
-                DiscountedPrice = placedPrice == null ? new Money(0, currency) : PromotionService.Value.GetDiscountPrice(placedPrice.EntryContent.GetCatalogKey(), market.MarketId, currency).UnitPrice,
-                FirstVariationCode = firstCode,
-                ImageUrl = AssetUrlResolver.Value.GetAssetUrl<IContentImage>(entry),
-                Url = entryUrl,
-                IsAvailable = entry.Prices().Where(price => price.MarketId == market.MarketId)
-                    .Any(x => x.UnitPrice.Currency == currency),
-                OnSale = entry.Property.Keys.Contains("OnSale") && ((bool?)entry.Property["OnSale"]?.Value ?? false),
-                NewArrival = entry.Property.Keys.Contains("NewArrival") && ((bool?)entry.Property["NewArrival"]?.Value ?? false),
-                ShowRecommendations = entryRecommendations != null ? entryRecommendations.ShowRecommendations : true,
-                EntryType = type
-            };
         }
 
         public static string GetUrl(this EntryContentBase entry) => GetUrl(entry, RelationRepository.Value, UrlResolver.Value);
 
-        public static string GetUrl(this EntryContentBase entry, IRelationRepository linksRepository,
-            UrlResolver urlResolver)
+        public static string GetUrl(this EntryContentBase entry, IRelationRepository linksRepository, UrlResolver urlResolver)
         {
             var productLink = entry is VariationContent
                 ? entry.GetParentProducts(linksRepository).FirstOrDefault()
@@ -425,7 +335,6 @@ namespace Foundation.Commerce.Extensions
 
         public static void AddBrowseHistory(this EntryContentBase entry)
         {
-
             var history = CookieService.Value.Get("BrowseHistory");
             var values = string.IsNullOrEmpty(history) ? new List<string>() :
                 history.Split(new[] { Delimiter }, StringSplitOptions.RemoveEmptyEntries).ToList();

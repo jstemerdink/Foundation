@@ -6,6 +6,7 @@ using Foundation.Cms.Extensions;
 using Foundation.Cms.Identity;
 using Mediachase.Data.Provider;
 using Microsoft.Owin;
+using Microsoft.Owin.Security.Cookies;
 using Owin;
 using System;
 
@@ -21,7 +22,10 @@ namespace Foundation
             // Parameterless constructor required by OWIN.
         }
 
-        public Startup(IConnectionStringHandler connectionStringHandler) => _connectionStringHandler = connectionStringHandler;
+        public Startup(IConnectionStringHandler connectionStringHandler)
+        {
+            _connectionStringHandler = connectionStringHandler;
+        }
 
         public void Configuration(IAppBuilder app)
         {
@@ -30,6 +34,11 @@ namespace Foundation
             {
                 RequireSsl = false,
                 AccessTokenExpireTimeSpan = TimeSpan.FromMinutes(60)
+            });
+            app.UseCookieAuthentication(new CookieAuthenticationOptions
+            {
+                AuthenticationType = "ApplicationCookie",
+                LoginPath = new PathString("/user")
             });
         }
     }
