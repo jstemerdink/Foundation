@@ -1,3 +1,5 @@
+using Foundation.Features.Blocks.ProductFilterBlocks;
+using Foundation.Infrastructure.Attributes;
 using Foundation.Infrastructure.Commerce.Models.EditorDescriptors;
 
 namespace Foundation.Features.Search.ProductSearchBlock
@@ -27,6 +29,7 @@ namespace Foundation.Features.Search.ProductSearchBlock
         public virtual int ItemsPerRow { get; set; }
 
         [AllowedTypes(typeof(NodeContent))]
+        [UseCatalogContentReferencesRoot]
         [Display(Name = "Catalog categories", Description = "Root categories to get products from, includes sub categories", GroupName = SystemTabNames.Content, Order = 50)]
         public virtual ContentArea Nodes { get; set; }
 
@@ -35,9 +38,12 @@ namespace Foundation.Features.Search.ProductSearchBlock
         public virtual string SortOrder { get; set; }
 
         [Display(Description = "Filters to apply to the search result", Order = 60)]
+
+        [AllowedTypes(typeof(FilterBaseBlock))]
         public virtual ContentArea Filters { get; set; }
 
         [AllowedTypes(typeof(EntryContentBase))]
+        [UseCatalogContentReferencesRoot]
         [Display(Name = "Priority products", Description = "Products to put first in the list", Order = 70)]
         public virtual ContentArea PriorityProducts { get; set; }
 
